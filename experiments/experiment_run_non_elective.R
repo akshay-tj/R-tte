@@ -117,7 +117,7 @@ non_elective_outcomes <- calculate_outcomes(
   intervention_name        = "bypass_surg",
   intervention_date_col    = "nvr_admission_date",
   starting_point_col       = "nvr_admission_date",
-  time_horizons            = c(90L),
+  time_horizons            = c(90L, 180L, 365L),
   include_pre_intervention = FALSE,
   mortality_id_prefix      = ""
 )
@@ -126,27 +126,46 @@ cat("n =", nrow(non_elective_outcomes), "\n")
 cat("cols =", ncol(non_elective_outcomes), "\n")
 glimpse(non_elective_outcomes)
 
-explore_df <- non_elective_outcomes %>%
-  select(study_id, 
-        daoh_bypass_surg_90d,
-        total_los_no_90d,
-        post_bypass_surg_los_no_90d, 
-        died_post_bypass_surg_90d) %>% left_join(
+non_elective_outcomes <- non_elective_outcomes %>%
+   left_join(
           non_elective_cohort %>%
             select(STUDY_ID, early_surgery) %>%
             mutate(study_id = as.character(STUDY_ID)),
           by = "study_id"
         )
 
-explore_df %>% group_by(early_surgery) %>%
-  summarise(
-    n = n(),
-    mean_daoh_90d = mean(daoh_bypass_surg_90d),
-    mean_los_90d = mean(total_los_no_90d),
-    mortality_rate_90d = mean(died_post_bypass_surg_90d)
-  )
+# 90 days
+cont_90 <- c(
+  "daoh_bypass_surg_90d",
+  "total_los_no_90d",
+  "post_bypass_surg_los_no_90d",
+  "bypass_surg_los_no")
 
-#write_csv(
-#  non_elective_outcomes,
-#  "analysable_subsets/non_elective_bypass_outcomes_all_horizons.csv"
-#)
+cat_90 <- c("died_post_bypass_surg_90d")
+
+outcomes_90_days <- table2_outcomes(non_elective_outcomes, cont_vars = cont_90, cat_vars = cat_90,
+                    horizon_label = "90 days")
+
+# 180 days 
+cont_180 <- c(
+  "daoh_bypass_surg_180d",
+  "total_los_no_180d",
+  "post_bypass_surg_los_no_180d",
+  "bypass_surg_los_no",
+)
+cat_180 <- c("died_post_bypass_surg_180d")
+
+outcomes_180_days <- table2_outcomes(non_elective_outcomes, cont_vars = cont_180, cat_vars = cat_180,
+                    horizon_label = "180 days")
+
+# 365 days
+cont_365 <- c(
+  "daoh_bypass_surg_365d",
+  "total_los_no_365d",
+  "post_bypass_surg_los_no_365d",
+  "bypass_surg_los_no")
+
+cat_365 <- c("died_post_bypass_surg_365d")
+
+outcomes_365_days <- table2_outcomes(non_elective_outcomes, cont_vars = cont_365, cat_vars = cat_365,
+                    horizon_label = "365 days")
