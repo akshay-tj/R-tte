@@ -140,7 +140,6 @@
 #'   this role have all-NA columns.
 #' @keywords internal
 .pivot_wide_admissions <- function(hes_long, intervention_name, role) {
-  warn_threshold <- 20L
 
   if (nrow(hes_long) == 0L) {
     return(tibble::tibble(study_id = character()))
@@ -158,15 +157,6 @@
     dplyr::ungroup()
 
   max_n <- max(df_numbered$read_no, na.rm = TRUE)
-
-  if (max_n > warn_threshold) {
-    warning(
-      "Maximum ", role, "-intervention admissions per patient is ", max_n,
-      " (warning threshold: ", warn_threshold, "). ",
-      "Check for unresolved overlapping admissions or data quality issues.",
-      call. = FALSE
-    )
-  }
 
   col_prefix <- paste0(role, "_", intervention_name, "_")
 
@@ -269,6 +259,12 @@
       hes_admission_date >= starting_point,
       hes_admission_date <= starting_point + horizon
     ) %>%
+    # TODO: pre/post boundary is currently interv_date (nvr_admission_date).
+    # Once NVR-HES matching is stable, consider using nvr_procedure_date as
+    # the boundary instead — it is >= nvr_admission_date and more precisely
+    # marks when the intervention occurred within the admission episode.
+    # Would require passing a separate procedure_date_col argument and
+    # joining it onto cohort_dates here.
     dplyr::mutate(
       role = dplyr::case_when(
         hes_admission_date == interv_date ~ "intervention",
@@ -282,6 +278,23 @@
         as.integer(hes_discharge_date - hes_admission_date)
       )
     )
+  
+  # Warn if post-intervention admissions per patient unusually high for
+  # this horizon — indicates overlapping admissions or data quality issues.
+  max_post_n <- hes_in_window %>%
+    dplyr::filter(role == "post") %>%
+    dplyr::count(study_id) %>%
+    dplyr::pull(n) %>%
+    max(na.rm = TRUE)
+
+  if (length(max_post_n) > 0L && max_post_n > 20L) {
+    warning(
+      "At horizon ", horizon, "d: maximum post-intervention admissions ",
+      "per patient is ", max_post_n, " (threshold: 20). ",
+      "Check for unresolved overlapping admissions in the HES data.",
+      call. = FALSE
+    )
+  }
 
   # Summarise by patient and role
   role_summary <- hes_in_window %>%
@@ -427,9 +440,6 @@
     ) %>%
     dplyr::select(-.follow_up_end, -.days_dead, -death_date)
 
-  # Assert: no negative DAOH should exist after overlap merging.
-  # Negative DAOH means total_los_w > horizon, which indicates unresolved
-  # overlapping admissions not caught by .merge_overlapping_admissions().
   neg_n <- result %>%
     dplyr::filter(
       !is.na(.data[[daoh_col]]),
@@ -437,13 +447,20 @@
     ) %>%
     nrow()
   if (neg_n > 0L) {
-    stop(
+    warning(
       neg_n, " patient(s) have negative ", daoh_col,
-      " at horizon ", horizon, " days.\n",
-      "This indicates unresolved overlapping HES admissions. ",
-      "Inspect the HES data for these patients.",
+      " at horizon ", horizon, " days ",
+      "(day-stay-inclusive LOS exceeded horizon). ",
+      "Likely cause: overlapping admissions not fully resolved by ",
+      ".merge_overlapping_admissions(). ",
+      "Flooring to 0 — matches original script behaviour (pmax(DAOH, 0)).",
       call. = FALSE
     )
+    result <- result %>%
+      dplyr::mutate(
+        !!daoh_col       := pmax(.data[[daoh_col]],       0L, na.rm = FALSE),
+        !!daoh_myles_col := pmax(.data[[daoh_myles_col]], 0L, na.rm = FALSE)
+      )
   }
 
   # Return only horizon-specific columns
@@ -479,7 +496,11 @@
 #'   `"bypass_surg"`. Used as a prefix/infix in all output column names.
 #'   Maximum 14 characters (Stata 32-char constraint — see Details).
 #' @param intervention_date_col Character scalar. Column in `cohort` holding
-#'   the intervention admission date.
+#'   the NVR admission date for the index intervention. Used to identify the
+#'   corresponding HES admission row (matched on `hes_admission_date`), and
+#'   as the boundary that classifies all other admissions as pre or post.
+#'   Defaults to `"nvr_admission_date"` — correct for both elective and
+#'   non-elective bypass studies.
 #' @param starting_point_col Character scalar. Column in `cohort` representing
 #'   time zero. Defaults to `"starting_point"`, which `build_cohort()` always
 #'   creates. The elective bypass study used `"valid_op_date"` as time zero;
@@ -533,9 +554,9 @@
 #' **DAOH (Myles):** Deaths = 0; survivors = `horizon - total_los_w`.
 #' (Myles et al., BMJ Open 2017, \doi{10.1136/bmjopen-2017-015828})
 #'
-#' **Overlap merging:** Contiguous HES admissions
-#' (`hes_discharge_date[n] == hes_admission_date[n+1]`) are merged before any
-#' LOS computation to prevent double-counting of shared boundary days.
+#' **Overlap merging:** Currently disabled — overlapping admissions are not
+#' merged. DAOH is floored at 0 to match original script behaviour. See TODO
+#' in source for planned Option B implementation.
 #'
 #' **Mortality:** Deaths before `starting_point` are never counted regardless
 #' of how close they fall to the horizon. The `abs()` in earlier analysis
@@ -562,9 +583,9 @@
 #'
 #'   summarise ungroup arrange lag coalesce if_else case_when rename
 #'   any_of all_of starts_with ends_with across row_number n distinct
+#' @importFrom magrittr %>%
 #' @importFrom tidyr pivot_wider
 #' @importFrom purrr reduce map
-#' @importFrom stringr str_remove
 #' @importFrom tibble tibble
 #' @export
 calculate_outcomes <- function(
@@ -572,7 +593,7 @@ calculate_outcomes <- function(
   hes_admissions,
   mortality,
   intervention_name,
-  intervention_date_col,
+  intervention_date_col    = "nvr_admission_date",
   starting_point_col       = "starting_point",
   time_horizons            = c(90, 180, 365),
   include_pre_intervention = TRUE,
@@ -633,7 +654,13 @@ calculate_outcomes <- function(
       hes_discharge_date = as.Date(hes_discharge_date)
     )
 
-  hes_merged <- .merge_overlapping_admissions(hes_cohort)
+  # TODO: overlap merging disabled — matches original script behaviour which
+  # did not merge overlapping admissions and instead floored DAOH at 0 post hoc.
+  # Re-enable once Option B is implemented: merge within the index admission
+  # only, not across the index/post boundary (which currently inflates index
+  # LOS by absorbing contiguous post-index episodes into the index span).
+  hes_merged <- hes_cohort %>%
+    dplyr::distinct(study_id, hes_admission_date, hes_discharge_date)
 
   # ---- Prepare mortality -----------------------------------------------------
 
@@ -641,9 +668,7 @@ calculate_outcomes <- function(
   # e.g. "AB12345" -> "12345" to match cohort study_id format.
   mortality_clean <- mortality %>%
     dplyr::mutate(
-      study_id   = stringr::str_remove(
-        study_id, paste0("^", mortality_id_prefix)
-      ),
+      study_id   = .strip_id_prefix(study_id, paste0("^", mortality_id_prefix)),
       death_date = as.Date(death_date)
     ) %>%
     dplyr::select(study_id, death_date)
