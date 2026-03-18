@@ -104,7 +104,7 @@
   too_long <- new_col_names[nchar(new_col_names) > 32]
   if (length(too_long) > 0) {
     warning(
-      length(too_long), " pairwise X\u00d7X column name(s) exceed 32 characters ",
+      length(too_long), " pairwise X*X column name(s) exceed 32 characters ",
       "(Stata hard limit). Shorten the base variable names to avoid this.\n",
       "Offending names:\n",
       paste0("  ", too_long, collapse = "\n"),
@@ -451,7 +451,7 @@ run_lasso_iv_selection <- function(
   dataset     <- xx_result$data
   all_xx_cols <- trimws(xx_result$col_names)
 
-  message(sprintf("\n  Pairwise X\u00d7X terms created: %d", length(all_xx_cols)))
+  message(sprintf("\n  Pairwise X*X terms created: %d", length(all_xx_cols)))
 
   # ---------------------------------------------------------------------------
   # Outcome interaction selection (SD-based penalty)
@@ -482,9 +482,9 @@ run_lasso_iv_selection <- function(
     trimws(out_int_predictors) != "" & !is.na(out_int_predictors)
   ]
 
-  X_out_int  <- .build_matrix(dataset, out_int_predictors)
-  X_out_int  <- .drop_constant_cols(X_out_int)  
-  pf_out_int <- .penalty_factor_sd(X_out_int, unpenalized = out_int_unpenalized)
+  X_out_int    <- .build_matrix(dataset, out_int_predictors)
+  out_drop     <- .drop_constant_cols(X_out_int)
+  X_out_int    <- out_drop$X
 
   cvfit_outcome_interactions <- .cv_lasso(
     X_out_int, dataset[[outcome]], pf_out_int, family_stage2, seed, standardize = FALSE  
@@ -502,13 +502,13 @@ run_lasso_iv_selection <- function(
   retained_dx_xx_outcome <- unique(c(retained_dx_outcome, retained_xx_outcome))
 
   message(sprintf(
-    "  Penalised pool: D\u00d7X (non-prespec)=%d  X\u00d7X=%d  total=%d",
+    "  Penalised pool: D*X (non-prespec)=%d  X*X=%d  total=%d",
     length(setdiff(all_dx_cols, dx_cols_unpen)),
     length(all_xx_cols),
     length(dx_cols_penalized)
   ))
   message(sprintf(
-    "  Retained: D\u00d7X=%d  X\u00d7X=%d  total=%d",
+    "  Retained: D*X=%d  X*X=%d  total=%d",
     length(retained_dx_outcome),
     length(retained_xx_outcome),
     length(retained_dx_xx_outcome)
@@ -554,8 +554,9 @@ run_lasso_iv_selection <- function(
     trimws(exp_int_predictors) != "" & !is.na(exp_int_predictors)
   ]
 
-  X_exp_int  <- .build_matrix(dataset, exp_int_predictors)
-  X_exp_int  <- .drop_constant_cols(X_exp_int)       
+  X_exp_int    <- .build_matrix(dataset, exp_int_predictors)
+  exp_drop     <- .drop_constant_cols(X_exp_int)
+  X_exp_int    <- exp_drop$X
   pf_exp_int <- .penalty_factor_sd(X_exp_int, unpenalized = exp_int_unpenalized)
 
   cvfit_exposure_interactions <- .cv_lasso(
@@ -580,15 +581,15 @@ run_lasso_iv_selection <- function(
   n_penalized_total  <- length(zx_cols_penalized)
 
   message(sprintf(
-    "  Forced Z\u00d7X: prespec=%d + from retained D\u00d7X=%d => %d (after dedup)",
+    "  Forced Z*X: prespec=%d + from retained D*X=%d => %d (after dedup)",
     n_prespec_forced, n_from_retained_dx, n_total_forced
   ))
   message(sprintf(
-    "  Penalised pool: Z\u00d7X=%d  X\u00d7X=%d  total=%d",
+    "  Penalised pool: Z*X=%d  X*X=%d  total=%d",
     n_penalized_zx, n_penalized_xx, n_penalized_total
   ))
   message(sprintf(
-    "  Retained: Z\u00d7X=%d  X\u00d7X=%d",
+    "  Retained: Z*X=%d  X*X=%d",
     length(retained_zx_exposure), length(retained_xx_exposure)
   ))
 
@@ -599,8 +600,9 @@ run_lasso_iv_selection <- function(
   # These are valid for binary treatment regardless of the outcome type.
   # ---------------------------------------------------------------------------
 
-  X_exposure_refit <- cbind(intercept = 1, .build_matrix(dataset, final_exposure_terms))
-  X_exposure_refit <- .drop_constant_cols(X_exposure_refit)
+  X_exposure_refit     <- cbind(intercept = 1, .build_matrix(dataset, final_exposure_terms))
+  refit_drop           <- .drop_constant_cols(X_exposure_refit)
+  X_exposure_refit     <- refit_drop$X
   final_exposure_terms <- setdiff(colnames(X_exposure_refit), "intercept")
 
   exposure_refit <- stats::glm.fit(
@@ -641,8 +643,10 @@ run_lasso_iv_selection <- function(
     if (include_resid_d) resid_d_col
   ))
 
-  final_outcome_X <- cbind(intercept = 1, .build_matrix(dataset, final_outcome_terms))
-  final_outcome_X <- .drop_constant_cols(final_outcome_X)
+  final_outcome_X      <- cbind(intercept = 1, .build_matrix(dataset, final_outcome_terms))
+  outcome_drop         <- .drop_constant_cols(final_outcome_X)
+  final_outcome_X      <- outcome_drop$X
+  final_outcome_terms  <- setdiff(colnames(final_outcome_X), "intercept")
 
   final_outcome_fit <- stats::glm.fit(
     x      = final_outcome_X,
@@ -667,26 +671,24 @@ run_lasso_iv_selection <- function(
 
   message("\n========== LASSO IV Selection Summary ==========")
   message(sprintf("  Part 1  union main effects:              %d", length(union_main_effects)))
-  message(sprintf("  Outcome interactions  D\u00d7X retained:    %d", length(retained_dx_outcome)))
-  message(sprintf("  Outcome interactions  X\u00d7X retained:    %d", length(retained_xx_outcome)))
-  message(sprintf("  Exposure interactions Z\u00d7X retained:    %d", length(retained_zx_exposure)))
-  message(sprintf("  Exposure interactions X\u00d7X retained:    %d", length(retained_xx_exposure)))
+  message(sprintf("  Outcome interactions  D*X retained:    %d", length(retained_dx_outcome)))
+  message(sprintf("  Outcome interactions  X*X retained:    %d", length(retained_xx_outcome)))
+  message(sprintf("  Exposure interactions Z*X retained:    %d", length(retained_zx_exposure)))
+  message(sprintf("  Exposure interactions X*X retained:    %d", length(retained_xx_exposure)))
   message(sprintf("  Final exposure model terms:              %d", length(final_exposure_terms)))
   message(sprintf("  Final outcome model terms:               %d", length(final_outcome_terms)))
-  message(sprintf("  D\u00d7residual interaction included:        %s", include_resid_d))
+  message(sprintf("  D*residual interaction included:        %s", include_resid_d))
   message("=================================================\n")
 
   list(
     union_main_effects          = union_main_effects,
     retained_dx_outcome         = retained_dx_outcome,
     retained_xx_outcome         = retained_xx_outcome,
-    retained_dx_xx_outcome      = retained_dx_xx_outcome,
     retained_zx_exposure        = retained_zx_exposure,
     retained_xx_exposure        = retained_xx_exposure,
     final_exposure_terms        = final_exposure_terms,
     generalised_residuals       = generalised_residuals,
     final_outcome_terms         = final_outcome_terms,
-    final_outcome_fit           = final_outcome_fit,
     gof                         = gof,
     cvfit_p1_exposure           = cvfit_p1_exposure,
     cvfit_p1_outcome            = cvfit_p1_outcome,
@@ -698,6 +700,16 @@ run_lasso_iv_selection <- function(
     treatment              = treatment,
     outcome                = outcome,
 
-    dropped_constant_cols  = dropped_constant_cols
+    dropped_constant_cols = list(
+    outcome_interaction_stage  = out_drop$dropped,
+    exposure_interaction_stage = exp_drop$dropped,
+    exposure_refit_stage       = refit_drop$dropped,
+    outcome_final_stage        = outcome_drop$dropped
+  ),
+
+  outcome_coef_table = data.frame(
+    term = c("(Intercept)", final_outcome_terms),
+    coef = unname(final_outcome_fit$coefficients)
+)
   )
 }
