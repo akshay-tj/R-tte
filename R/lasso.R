@@ -218,7 +218,7 @@
 #' Runs LASSO separately for the exposure model (forcing Z and prespecified
 #' subgroups) and the outcome model (forcing D and prespecified subgroups).
 #' Takes the union of selected main effects; prespecified subgroups are always
-#' retained. Squared continuous variables should be included in 
+#' retained. Squared continuous variables should be included in
 #' \code{penalized_main_effects} as a pre-computed column upstream.
 #'
 #' **Outcome interaction selection (SD-based penalty):**
@@ -241,6 +241,22 @@
 #' Reruns the outcome interaction model augmented with the generalised residual.
 #' The D×residual interaction term is included only when
 #' \code{include_resid_d = TRUE}.
+#'
+#' @details
+#' **Standardisation and penalty strategy:**
+#' Part 1 uses glmnet's internal standardisation (\code{standardize = TRUE})
+#' with a uniform 0/1 penalty factor — standard LASSO behaviour for main
+#' effect selection. The interaction stages (Parts 2a and 2b) disable glmnet
+#' standardisation (\code{standardize = FALSE}) and instead use an SD-based
+#' penalty factor (1/SD per column). This is intentional: interaction terms,
+#' particularly rare binary products, the 1/SD penalty correctly 
+#' scales the penalty proportionally to each term's variance.
+#'
+#' **Constant column handling:**
+#' Columns with zero variance (e.g. a treatment interaction where treatment is
+#' constant in a stratum) are dropped before each LASSO stage with a warning.
+#' Dropped column names are returned in \code{dropped_constant_cols} for
+#' inspection.
 #'
 #' @param dataset A data frame (or tibble) containing all required variables.
 #'   All covariates must be pre-coded as numeric (dummy variables); factor
@@ -277,35 +293,41 @@
 #'       stage.}
 #'     \item{\code{retained_xx_outcome}}{Character vector. X×X interaction
 #'       terms retained in the outcome interaction stage.}
-#'     \item{\code{retained_dx_xx_outcome}}{Character vector. Union of
-#'       \code{retained_dx_outcome} and \code{retained_xx_outcome}; these
-#'       terms enter the final outcome model.}
 #'     \item{\code{retained_zx_exposure}}{Character vector. Z×X interaction
 #'       terms (beyond forced terms) retained in the exposure interaction
 #'       stage.}
 #'     \item{\code{retained_xx_exposure}}{Character vector. X×X interaction
 #'       terms retained in the exposure interaction stage.}
 #'     \item{\code{final_exposure_terms}}{Character vector. All terms in the
-#'       refitted exposure model.}
+#'       refitted exposure model (post constant-column drop).}
 #'     \item{\code{generalised_residuals}}{Numeric vector. Residuals
 #'       D - P̂(D=1|Z,X) from the refitted exposure model
 #'       (length = \code{nrow(dataset)}).}
 #'     \item{\code{final_outcome_terms}}{Character vector. All terms in the
-#'       final 2SRI outcome model.}
-#'     \item{\code{final_outcome_fit}}{A \code{glm.fit} object for the final
-#'       outcome model.}
+#'       final 2SRI outcome model (post constant-column drop).}
 #'     \item{\code{gof}}{Named list of goodness-of-fit statistics for the
 #'       final outcome model. For gaussian: \code{r_squared}. For binomial:
 #'       \code{mcfadden_r2} and \code{hoslem_test}.}
+#'     \item{\code{outcome_coef_table}}{Data frame with columns \code{term}
+#'       and \code{coef} for the final outcome model. Term names are taken
+#'       directly from the fitted object and always align with coefficients.}
 #'     \item{\code{cvfit_p1_exposure}}{cv.glmnet fit — Part 1 exposure model.}
 #'     \item{\code{cvfit_p1_outcome}}{cv.glmnet fit — Part 1 outcome model.}
 #'     \item{\code{cvfit_outcome_interactions}}{cv.glmnet fit — outcome
 #'       interaction selection stage.}
 #'     \item{\code{cvfit_exposure_interactions}}{cv.glmnet fit — exposure
 #'       interaction selection stage.}
+#'     \item{\code{dropped_constant_cols}}{Named list of character vectors,
+#'       one per stage, recording any columns dropped due to zero variance:
+#'       \code{outcome_interaction_stage}, \code{exposure_interaction_stage},
+#'       \code{exposure_refit_stage}, \code{outcome_final_stage}.}
+#'     \item{\code{prespecified_subgroups}}{Character vector. Echo of the
+#'       input argument, for traceability.}
+#'     \item{\code{instrument}}{String. Echo of the input argument.}
+#'     \item{\code{treatment}}{String. Echo of the input argument.}
+#'     \item{\code{outcome}}{String. Echo of the input argument.}
 #'   }
 #'
-#' @importFrom magrittr %>%
 #' @importFrom glmnet cv.glmnet
 #' @export
 run_lasso_iv_selection <- function(
@@ -486,6 +508,7 @@ run_lasso_iv_selection <- function(
   out_drop     <- .drop_constant_cols(X_out_int)
   X_out_int    <- out_drop$X
 
+  pf_out_int <- .penalty_factor_sd(X_out_int, unpenalized = out_int_unpenalized)
   cvfit_outcome_interactions <- .cv_lasso(
     X_out_int, dataset[[outcome]], pf_out_int, family_stage2, seed, standardize = FALSE  
   )
@@ -527,7 +550,6 @@ run_lasso_iv_selection <- function(
   zx_result   <- .add_interactions(dataset, union_main_effects, instrument, "_iv")
   dataset     <- zx_result$data
   all_zx_cols <- trimws(zx_result$col_names)
-  all_zx_cols <- all_zx_cols[!is.na(all_zx_cols) & all_zx_cols != "" & all_zx_cols != "_iv"]
 
   # Z x prespec: always unpenalised
   zx_prespec_unpen <- paste0(prespec_in_union, "_iv")
@@ -708,7 +730,7 @@ run_lasso_iv_selection <- function(
   ),
 
   outcome_coef_table = data.frame(
-    term = c("(Intercept)", final_outcome_terms),
+    term = names(final_outcome_fit$coefficients),
     coef = unname(final_outcome_fit$coefficients)
 )
   )
