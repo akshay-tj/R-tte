@@ -1,4 +1,3 @@
-# lasso.R
 # LASSO-based covariate and interaction selection for IV analysis (2SRI / control function)
 
 # ==============================================================================
@@ -10,6 +9,24 @@
 .selected_vars <- function(cvfit) {
   coefs <- coef(cvfit, s = "lambda.min")
   setdiff(rownames(coefs)[coefs[, 1] != 0], "(Intercept)")
+}
+
+#' Drop constant columns from a matrix
+#' @keywords internal
+.drop_constant_cols <- function(X) {
+  keep   <- apply(X, 2, function(col) sd(col) > 0)
+  dropped <- colnames(X)[!keep]
+  if (length(dropped) > 0) {
+    warning(
+      length(dropped), " constant column(s) removed before LASSO: ",
+      paste(dropped, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  list(
+    X       = X[, keep, drop = FALSE],
+    dropped = dropped
+  )
 }
 
 #' Build a numeric matrix from a tibble and a vector of column names
@@ -39,7 +56,7 @@
   as.numeric(!col_names %in% unpenalized)
 }
 
-#' SD-based penalty factor — used for Parts 2a/2b (interaction terms)
+#' SD-based penalty factor — used for interaction stages
 #'
 #' Returns 1/SD for penalised columns, 0 for unpenalised.
 #' Columns with SD == 0 (constant) are set to 0 (never dropped).
@@ -47,24 +64,22 @@
 #' due to their small coefficients rather than true unimportance.
 #' @keywords internal
 .penalty_factor_sd <- function(X, unpenalized) {
-  sds        <- apply(X, 2, sd)
-  sds[sds == 0] <- NA_real_
-  pf         <- 1 / sds
-  pf[is.na(pf)] <- 0   # sd == 0: do not penalise (constant column)
+  sds           <- apply(X, 2, sd) # calculate sd for each column
+  pf            <- 1 / sds
   pf[colnames(X) %in% unpenalized] <- 0
   pf
 }
 
 #' Run cv.glmnet with a fixed seed
 #' @keywords internal
-.cv_lasso <- function(X, y, pf, family, seed) {
+.cv_lasso <- function(X, y, pf, family, seed, standardize = TRUE) {
   set.seed(seed)
   glmnet::cv.glmnet(
     X, y,
     family         = family,
     alpha          = 1,
     penalty.factor = pf,
-    standardize    = TRUE,
+    standardize    = standardize, # we use glmnet's internal standardization for part 1; for part 2 (interaction term identification) we use the SD-based penalty factor 
     type.measure   = "deviance"
   )
 }
@@ -83,7 +98,7 @@
     return(list(data = data, col_names = character(0)))
   }
 
-  pairs        <- utils::combn(vars, 2, simplify = FALSE)
+  pairs         <- utils::combn(vars, 2, simplify = FALSE)
   new_col_names <- vapply(pairs, function(p) paste0(p[1], "_x_", p[2]), character(1))
 
   too_long <- new_col_names[nchar(new_col_names) > 32]
@@ -105,10 +120,10 @@
 
 #' Add interaction columns between a set of base variables and a reference column
 #'
-#' @param data         Tibble to augment
-#' @param base_vars    Character vector of base variable names
-#' @param reference_col  Name of the column to interact with (e.g. treatment, instrument)
-#' @param suffix       Suffix appended to each base name (e.g. "_d", "_iv")
+#' @param data          Tibble to augment
+#' @param base_vars     Character vector of base variable names
+#' @param reference_col Name of the column to interact with (e.g. treatment, instrument)
+#' @param suffix        Suffix appended to each base name (e.g. "_d", "_iv")
 #' @return List with augmented `data` and `col_names` of new columns
 #' @keywords internal
 .add_interactions <- function(data, base_vars, reference_col, suffix) {
@@ -138,13 +153,55 @@
   switch(
     family_str,
     "binomial" = stats::binomial(),
-    "gaussian" = stats::gaussian(),
+    "gaussian"  = stats::gaussian(),
     stop(
       "Unsupported family for glm() re-estimation: '", family_str, "'.\n",
       "Supported values: 'binomial', 'gaussian'.",
       call. = FALSE
     )
   )
+}
+
+#' Compute goodness-of-fit statistics for a glm.fit object
+#'
+#' For gaussian outcomes: R-squared (1 - SS_res / SS_tot).
+#' For binomial outcomes: McFadden pseudo-R-squared and Hosmer-Lemeshow test
+#' (requires the \pkg{ResourceSelection} package).
+#'
+#' @param fit        A \code{glm.fit} object.
+#' @param y          Numeric response vector used to fit the model.
+#' @param family_str One of \code{"gaussian"} or \code{"binomial"}.
+#' @return A named list of goodness-of-fit statistics (invisibly printed).
+#' @keywords internal
+.gof_stats <- function(fit, y, family_str) {
+  fitted_vals <- fit$fitted.values
+
+  if (family_str == "gaussian") {
+    ss_res  <- sum((y - fitted_vals)^2)
+    ss_tot  <- sum((y - mean(y))^2)
+    r2      <- 1 - ss_res / ss_tot
+    message(sprintf("  R-squared: %.4f", r2))
+    return(invisible(list(r_squared = r2)))
+  }
+
+  if (family_str == "binomial") {
+    # McFadden pseudo-R-squared: 1 - (log-lik model) / (log-lik null)
+    ll_model <- sum(stats::dbinom(y, size = 1, prob = fitted_vals,     log = TRUE))
+    ll_null  <- sum(stats::dbinom(y, size = 1, prob = mean(y), log = TRUE))
+    mcfadden <- 1 - ll_model / ll_null
+
+    message(sprintf("  McFadden pseudo-R-squared: %.4f", mcfadden))
+
+    # Hosmer-Lemeshow test (10 groups by default)
+    hl_result <- ResourceSelection::hoslem.test(y, fitted_vals, g = 10)
+    message(sprintf(
+      "  Hosmer-Lemeshow test: chi-sq=%.3f  df=%d  p=%.4f",
+      hl_result$statistic, hl_result$parameter, hl_result$p.value
+    ))
+    hl <- hl_result
+
+    return(invisible(list(mcfadden_r2 = mcfadden, hoslem_test = hl)))
+  }
 }
 
 # ==============================================================================
@@ -161,28 +218,35 @@
 #' Runs LASSO separately for the exposure model (forcing Z and prespecified
 #' subgroups) and the outcome model (forcing D and prespecified subgroups).
 #' Takes the union of selected main effects; prespecified subgroups are always
-#' retained.
+#' retained. Squared continuous variables should be included in 
+#' \code{penalized_main_effects} as a pre-computed column upstream.
 #'
-#' **Part 2a — Outcome interaction selection (SD-based penalty):**
+#' **Outcome interaction selection (SD-based penalty):**
 #' Models the outcome with unpenalised terms (union main effects + D +
 #' prespecified subgroups + D×prespecified) and penalised interaction
-#' candidates (D×X for non-prespecified X, plus all X×X pairs). Retains
-#' surviving penalised interactions.
+#' candidates (D×X for non-prespecified X, plus all X×X pairs from the union).
+#' Retains surviving penalised interactions as \code{retained_dx_outcome} and
+#' \code{retained_xx_outcome}.
 #'
-#' **Part 2b — Exposure interaction selection (SD-based penalty):**
+#' **Exposure interaction selection (SD-based penalty):**
 #' Models the exposure with unpenalised terms (union main effects + Z +
 #' prespecified subgroups + Z×prespecified + Z×X for each X where D×X was
-#' retained in Part 2a) and penalised interaction candidates (remaining Z×X
-#' plus all X×X pairs). Refits the selected exposure model via `glm.fit()`
-#' and computes generalised residuals.
+#' retained above) and penalised interaction candidates (remaining Z×X plus
+#' all X×X pairs from the union). Surviving penalised terms are returned as
+#' \code{retained_zx_exposure} and \code{retained_xx_exposure}.
+#' The selected exposure model is refit via \code{glm.fit()} and generalised
+#' residuals (D - fitted P(D=1|Z,X)) are computed.
 #'
-#' **Final outcome model:**
-#' Reruns the Part 2a outcome model augmented with the generalised residual
-#' and its interaction with D (2SRI control function correction).
+#' **Final outcome model (2SRI control function correction):**
+#' Reruns the outcome interaction model augmented with the generalised residual.
+#' The D×residual interaction term is included only when
+#' \code{include_resid_d = TRUE}.
 #'
 #' @param dataset A data frame (or tibble) containing all required variables.
 #'   All covariates must be pre-coded as numeric (dummy variables); factor
-#'   columns are not supported.
+#'   columns are not supported. Age-squared should be pre-computed upstream
+#'   and passed in via \code{prespecified_subgroups} or
+#'   \code{penalized_main_effects}.
 #' @param outcome String. Name of the outcome variable.
 #' @param treatment String. Name of the binary treatment variable.
 #' @param instrument String. Name of the instrumental variable.
@@ -191,31 +255,54 @@
 #'   unpenalised.
 #' @param penalized_main_effects Character vector. Additional covariates
 #'   eligible for selection in Part 1 (penalised at the main-effect stage).
-#' @param family_stage1 String. `glmnet` family for the exposure model.
-#'   Default `"binomial"`.
-#' @param family_stage2 String. `glmnet` family for the outcome model.
-#'   Default `"gaussian"`. Note: tobit is not supported by `glmnet`; use
-#'   `"gaussian"` as an approximation for censored outcomes.
-#' @param seed Single integer. Random seed for reproducibility. Default `1276`.
+#' @param family_stage1 String. \code{glmnet} family for the exposure model.
+#'   Default \code{"binomial"}.
+#' @param family_stage2 String. \code{glmnet} family for the outcome model.
+#'   Default \code{"gaussian"}. Note: tobit is not supported by \code{glmnet};
+#'   use \code{"gaussian"} as an approximation for censored outcomes.
+#' @param include_resid_d Logical. Whether to include the D×(generalised
+#'   residual) interaction term in the final outcome model (2SRI control
+#'   function correction for heterogeneous treatment effects). Default
+#'   \code{TRUE}. Set to \code{FALSE} to include only the residual main effect
+#'   and compare model fit using the printed goodness-of-fit statistics.
+#' @param seed Single integer. Random seed for reproducibility. Default
+#'   \code{1276}.
 #'
 #' @return A named list:
 #'   \describe{
-#'     \item{`union_main_effects`}{Character vector. Union of main effects
+#'     \item{\code{union_main_effects}}{Character vector. Union of main effects
 #'       selected in Part 1, always including prespecified subgroups.}
-#'     \item{`retained_dx_interactions`}{Character vector. D×X and X×X
-#'       interaction terms retained in Part 2a.}
-#'     \item{`final_exposure_terms`}{Character vector. All terms in the
-#'       refitted Part 2b exposure model.}
-#'     \item{`generalised_residuals`}{Numeric vector. Residuals from the
-#'       refitted exposure model (length = `nrow(dataset)`).}
-#'     \item{`final_outcome_terms`}{Character vector. All terms in the final
-#'       2SRI outcome model (Part 2a terms + residual + D×residual).}
-#'     \item{`final_outcome_fit`}{A `glm.fit` object for the final outcome
-#'       model.}
-#'     \item{`cvfit_p1_exposure`}{`cv.glmnet` fit — Part 1 exposure model.}
-#'     \item{`cvfit_p1_outcome`}{`cv.glmnet` fit — Part 1 outcome model.}
-#'     \item{`cvfit_p2a_outcome`}{`cv.glmnet` fit — Part 2a outcome model.}
-#'     \item{`cvfit_p2b_exposure`}{`cv.glmnet` fit — Part 2b exposure model.}
+#'     \item{\code{retained_dx_outcome}}{Character vector. D×X interaction
+#'       terms (non-prespecified X only) retained in the outcome interaction
+#'       stage.}
+#'     \item{\code{retained_xx_outcome}}{Character vector. X×X interaction
+#'       terms retained in the outcome interaction stage.}
+#'     \item{\code{retained_dx_xx_outcome}}{Character vector. Union of
+#'       \code{retained_dx_outcome} and \code{retained_xx_outcome}; these
+#'       terms enter the final outcome model.}
+#'     \item{\code{retained_zx_exposure}}{Character vector. Z×X interaction
+#'       terms (beyond forced terms) retained in the exposure interaction
+#'       stage.}
+#'     \item{\code{retained_xx_exposure}}{Character vector. X×X interaction
+#'       terms retained in the exposure interaction stage.}
+#'     \item{\code{final_exposure_terms}}{Character vector. All terms in the
+#'       refitted exposure model.}
+#'     \item{\code{generalised_residuals}}{Numeric vector. Residuals
+#'       D - P̂(D=1|Z,X) from the refitted exposure model
+#'       (length = \code{nrow(dataset)}).}
+#'     \item{\code{final_outcome_terms}}{Character vector. All terms in the
+#'       final 2SRI outcome model.}
+#'     \item{\code{final_outcome_fit}}{A \code{glm.fit} object for the final
+#'       outcome model.}
+#'     \item{\code{gof}}{Named list of goodness-of-fit statistics for the
+#'       final outcome model. For gaussian: \code{r_squared}. For binomial:
+#'       \code{mcfadden_r2} and \code{hoslem_test}.}
+#'     \item{\code{cvfit_p1_exposure}}{cv.glmnet fit — Part 1 exposure model.}
+#'     \item{\code{cvfit_p1_outcome}}{cv.glmnet fit — Part 1 outcome model.}
+#'     \item{\code{cvfit_outcome_interactions}}{cv.glmnet fit — outcome
+#'       interaction selection stage.}
+#'     \item{\code{cvfit_exposure_interactions}}{cv.glmnet fit — exposure
+#'       interaction selection stage.}
 #'   }
 #'
 #' @importFrom magrittr %>%
@@ -228,9 +315,10 @@ run_lasso_iv_selection <- function(
     instrument,
     prespecified_subgroups,
     penalized_main_effects,
-    family_stage1 = "binomial",
-    family_stage2 = "gaussian",
-    seed          = 1276
+    family_stage1  = "binomial",
+    family_stage2  = "gaussian",
+    include_resid_d = TRUE,
+    seed           = 1276
 ) {
 
   # ---------------------------------------------------------------------------
@@ -293,6 +381,9 @@ run_lasso_iv_selection <- function(
       call. = FALSE
     )
   }
+  if (!is.logical(include_resid_d) || length(include_resid_d) != 1) {
+    stop("`include_resid_d` must be a single logical (TRUE or FALSE).", call. = FALSE)
+  }
   if (!is.numeric(seed) || length(seed) != 1) {
     stop("`seed` must be a single integer.", call. = FALSE)
   }
@@ -328,6 +419,8 @@ run_lasso_iv_selection <- function(
   sel_p1_exp <- .selected_vars(cvfit_p1_exposure)
   sel_p1_out <- .selected_vars(cvfit_p1_outcome)
 
+  # Union of selected main effects; strip Z and D (they enter separately),
+  # always retain prespecified subgroups
   union_main_effects <- unique(c(
     setdiff(union(sel_p1_exp, sel_p1_out), c(instrument, treatment)),
     prespecified_subgroups
@@ -350,7 +443,8 @@ run_lasso_iv_selection <- function(
   message("  union_main_effects: ", paste(union_main_effects, collapse = ", "))
 
   # ---------------------------------------------------------------------------
-  # Pairwise X x X interactions (created once, used in both 2a and 2b)
+  # Pairwise X x X interactions — created once, shared across both interaction
+  # selection stages (each stage selects independently from this pool)
   # ---------------------------------------------------------------------------
 
   xx_result   <- .add_pairwise_xx_interactions(dataset, union_main_effects)
@@ -360,16 +454,19 @@ run_lasso_iv_selection <- function(
   message(sprintf("\n  Pairwise X\u00d7X terms created: %d", length(all_xx_cols)))
 
   # ---------------------------------------------------------------------------
-  # Part 2a — Outcome interaction selection (SD-based penalty)
+  # Outcome interaction selection (SD-based penalty)
+  #
+  # Unpenalised: union main effects + D + prespecified subgroups + D*prespec
+  # Penalised:   D*X (non-prespec X) + all X*X pairs
   # ---------------------------------------------------------------------------
 
-  message("\n--- Part 2a: Outcome interaction selection (SD-based penalty) ---")
+  message("\n--- Outcome interaction selection (SD-based penalty) ---")
 
   dx_result   <- .add_interactions(dataset, union_main_effects, treatment, "_d")
   dataset     <- dx_result$data
   all_dx_cols <- trimws(dx_result$col_names)
 
-  # D x prespec interactions: always unpenalised
+  # D x prespec interactions are always unpenalised
   prespec_in_union <- trimws(intersect(prespecified_subgroups, union_main_effects))
   prespec_in_union <- prespec_in_union[!is.na(prespec_in_union) & prespec_in_union != ""]
   dx_cols_unpen    <- paste0(prespec_in_union, "_d")
@@ -377,28 +474,32 @@ run_lasso_iv_selection <- function(
   # Penalised pool: D x X (non-prespec) + all X x X
   dx_cols_penalized <- c(setdiff(all_dx_cols, dx_cols_unpen), all_xx_cols)
 
-  p2a_unpenalized <- unique(c(
+  out_int_unpenalized <- unique(c(
     union_main_effects, treatment, prespecified_subgroups, dx_cols_unpen
   ))
-  p2a_predictors <- unique(c(p2a_unpenalized, dx_cols_penalized))
-  p2a_predictors <- p2a_predictors[trimws(p2a_predictors) != "" & !is.na(p2a_predictors)]
+  out_int_predictors <- unique(c(out_int_unpenalized, dx_cols_penalized))
+  out_int_predictors <- out_int_predictors[
+    trimws(out_int_predictors) != "" & !is.na(out_int_predictors)
+  ]
 
-  X_p2a  <- .build_matrix(dataset, p2a_predictors)
-  pf_p2a <- .penalty_factor_sd(X_p2a, unpenalized = p2a_unpenalized)
+  X_out_int  <- .build_matrix(dataset, out_int_predictors)
+  X_out_int  <- .drop_constant_cols(X_out_int)  
+  pf_out_int <- .penalty_factor_sd(X_out_int, unpenalized = out_int_unpenalized)
 
-  cvfit_p2a_outcome <- .cv_lasso(
-    X_p2a, dataset[[outcome]], pf_p2a, family_stage2, seed
+  cvfit_outcome_interactions <- .cv_lasso(
+    X_out_int, dataset[[outcome]], pf_out_int, family_stage2, seed, standardize = FALSE  
   )
-  sel_p2a <- .selected_vars(cvfit_p2a_outcome)
+  sel_out_int <- .selected_vars(cvfit_outcome_interactions)
 
-  # Retain penalised D x X (non-prespec) and X x X that survived
-  retained_dx_only         <- intersect(sel_p2a, setdiff(all_dx_cols, dx_cols_unpen))
-  retained_xx_interactions <- intersect(sel_p2a, all_xx_cols)
+  # Separate retained D*X and X*X terms for clarity
+  retained_dx_outcome <- intersect(sel_out_int, setdiff(all_dx_cols, dx_cols_unpen))
+  retained_xx_outcome <- intersect(sel_out_int, all_xx_cols)
 
-  retained_dx_only         <- retained_dx_only[nchar(trimws(retained_dx_only)) > 0]
-  retained_xx_interactions <- retained_xx_interactions[nchar(trimws(retained_xx_interactions)) > 0]
+  retained_dx_outcome <- retained_dx_outcome[nchar(trimws(retained_dx_outcome)) > 0]
+  retained_xx_outcome <- retained_xx_outcome[nchar(trimws(retained_xx_outcome)) > 0]
 
-  retained_dx_interactions <- unique(c(retained_dx_only, retained_xx_interactions))
+  # Union feeds the final outcome model
+  retained_dx_xx_outcome <- unique(c(retained_dx_outcome, retained_xx_outcome))
 
   message(sprintf(
     "  Penalised pool: D\u00d7X (non-prespec)=%d  X\u00d7X=%d  total=%d",
@@ -408,16 +509,20 @@ run_lasso_iv_selection <- function(
   ))
   message(sprintf(
     "  Retained: D\u00d7X=%d  X\u00d7X=%d  total=%d",
-    length(retained_dx_only),
-    length(retained_xx_interactions),
-    length(retained_dx_interactions)
+    length(retained_dx_outcome),
+    length(retained_xx_outcome),
+    length(retained_dx_xx_outcome)
   ))
 
   # ---------------------------------------------------------------------------
-  # Part 2b — Exposure interaction selection (SD-based penalty)
+  # Exposure interaction selection (SD-based penalty)
+  #
+  # Unpenalised: union main effects + Z + prespecified subgroups
+  #              + Z*prespec + Z*X for each X where D*X was retained above
+  # Penalised:   remaining Z*X + all X*X pairs
   # ---------------------------------------------------------------------------
 
-  message("\n--- Part 2b: Exposure interaction selection (SD-based penalty) ---")
+  message("\n--- Exposure interaction selection (SD-based penalty) ---")
 
   zx_result   <- .add_interactions(dataset, union_main_effects, instrument, "_iv")
   dataset     <- zx_result$data
@@ -427,57 +532,76 @@ run_lasso_iv_selection <- function(
   # Z x prespec: always unpenalised
   zx_prespec_unpen <- paste0(prespec_in_union, "_iv")
 
-  # Z x X also unpenalised for each X where D x X was retained (non-prespec D x X only)
-  retained_dx_base  <- trimws(gsub("_d$", "", retained_dx_only))
+  # Z x X also unpenalised for each X where D x X was retained
+  retained_dx_base  <- trimws(gsub("_d$", "", retained_dx_outcome))
   retained_dx_base  <- retained_dx_base[!is.na(retained_dx_base) & retained_dx_base != ""]
   retained_zx_unpen <- paste0(retained_dx_base, "_iv")
   retained_zx_unpen <- retained_zx_unpen[nchar(trimws(retained_zx_unpen)) > 0]
 
   zx_cols_unpen <- unique(trimws(c(zx_prespec_unpen, retained_zx_unpen)))
-  zx_cols_unpen <- zx_cols_unpen[!is.na(zx_cols_unpen) & zx_cols_unpen != "" & zx_cols_unpen != "_iv"]
+  zx_cols_unpen <- zx_cols_unpen[
+    !is.na(zx_cols_unpen) & zx_cols_unpen != "" & zx_cols_unpen != "_iv"
+  ]
 
   # Penalised pool: remaining Z x X (not forced) + all X x X
   zx_cols_penalized <- c(setdiff(all_zx_cols, zx_cols_unpen), all_xx_cols)
 
-  p2b_unpenalized <- unique(c(
+  exp_int_unpenalized <- unique(c(
     union_main_effects, instrument, prespecified_subgroups, zx_cols_unpen
   ))
-  p2b_predictors <- unique(c(p2b_unpenalized, zx_cols_penalized))
-  p2b_predictors <- p2b_predictors[trimws(p2b_predictors) != "" & !is.na(p2b_predictors)]
+  exp_int_predictors <- unique(c(exp_int_unpenalized, zx_cols_penalized))
+  exp_int_predictors <- exp_int_predictors[
+    trimws(exp_int_predictors) != "" & !is.na(exp_int_predictors)
+  ]
 
-  X_p2b  <- .build_matrix(dataset, p2b_predictors)
-  pf_p2b <- .penalty_factor_sd(X_p2b, unpenalized = p2b_unpenalized)
+  X_exp_int  <- .build_matrix(dataset, exp_int_predictors)
+  X_exp_int  <- .drop_constant_cols(X_exp_int)       
+  pf_exp_int <- .penalty_factor_sd(X_exp_int, unpenalized = exp_int_unpenalized)
 
-  cvfit_p2b_exposure <- .cv_lasso(
-    X_p2b, dataset[[treatment]], pf_p2b, family_stage1, seed
+  cvfit_exposure_interactions <- .cv_lasso(
+    X_exp_int, dataset[[treatment]], pf_exp_int, family_stage1, seed, standardize = FALSE
   )
-  sel_p2b <- .selected_vars(cvfit_p2b_exposure)
+  sel_exp_int <- .selected_vars(cvfit_exposure_interactions)
 
-  final_exposure_terms <- unique(c(p2b_unpenalized, sel_p2b))
+  # Surface retained Z*X and X*X terms separately
+  retained_zx_exposure <- intersect(sel_exp_int, setdiff(all_zx_cols, zx_cols_unpen))
+  retained_xx_exposure <- intersect(sel_exp_int, all_xx_cols)
 
-  # -- Corrected message: compute forced counts without double-counting overlap --
+  retained_zx_exposure <- retained_zx_exposure[nchar(trimws(retained_zx_exposure)) > 0]
+  retained_xx_exposure <- retained_xx_exposure[nchar(trimws(retained_xx_exposure)) > 0]
+
+  final_exposure_terms <- unique(c(exp_int_unpenalized, sel_exp_int))
+
   n_prespec_forced   <- length(zx_prespec_unpen)
   n_from_retained_dx <- length(setdiff(retained_zx_unpen, zx_prespec_unpen))
-  n_total_forced     <- length(zx_cols_unpen)   # after deduplication
+  n_total_forced     <- length(zx_cols_unpen)
   n_penalized_zx     <- length(setdiff(all_zx_cols, zx_cols_unpen))
   n_penalized_xx     <- length(all_xx_cols)
   n_penalized_total  <- length(zx_cols_penalized)
-  n_additional_sel   <- length(intersect(sel_p2b, zx_cols_penalized))
 
   message(sprintf(
     "  Forced Z\u00d7X: prespec=%d + from retained D\u00d7X=%d => %d (after dedup)",
     n_prespec_forced, n_from_retained_dx, n_total_forced
   ))
   message(sprintf(
-    "  Penalised pool: Z\u00d7X=%d  X\u00d7X=%d  total=%d  |  Additional selected: %d",
-    n_penalized_zx, n_penalized_xx, n_penalized_total, n_additional_sel
+    "  Penalised pool: Z\u00d7X=%d  X\u00d7X=%d  total=%d",
+    n_penalized_zx, n_penalized_xx, n_penalized_total
+  ))
+  message(sprintf(
+    "  Retained: Z\u00d7X=%d  X\u00d7X=%d",
+    length(retained_zx_exposure), length(retained_xx_exposure)
   ))
 
   # ---------------------------------------------------------------------------
   # Refit exposure model via glm.fit() and compute generalised residuals
+  #
+  # Generalised residuals = D - P̂(D=1|Z,X), i.e. response-scale residuals.
+  # These are valid for binary treatment regardless of the outcome type.
   # ---------------------------------------------------------------------------
 
-  X_exposure_refit <- cbind(1, .build_matrix(dataset, final_exposure_terms))
+  X_exposure_refit <- cbind(intercept = 1, .build_matrix(dataset, final_exposure_terms))
+  X_exposure_refit <- .drop_constant_cols(X_exposure_refit)
+  final_exposure_terms <- setdiff(colnames(X_exposure_refit), "intercept")
 
   exposure_refit <- stats::glm.fit(
     x      = X_exposure_refit,
@@ -495,9 +619,14 @@ run_lasso_iv_selection <- function(
 
   # ---------------------------------------------------------------------------
   # Final outcome model — 2SRI control function correction
+  #
+  # Always includes the generalised residual main effect.
+  # D x residual interaction included only when include_resid_d = TRUE;
+  # set to FALSE to compare fit with/without the interaction term.
   # ---------------------------------------------------------------------------
 
   message("\n--- Final outcome model: 2SRI correction ---")
+  message(sprintf("  include_resid_d = %s", include_resid_d))
 
   resid_col   <- ".ctrl_resid"
   resid_d_col <- ".ctrl_resid_x_d"
@@ -506,13 +635,14 @@ run_lasso_iv_selection <- function(
   dataset[[resid_d_col]] <- generalised_residuals * dataset[[treatment]]
 
   final_outcome_terms <- unique(c(
-    p2a_unpenalized,
-    retained_dx_interactions,
+    out_int_unpenalized,
+    retained_dx_xx_outcome,
     resid_col,
-    resid_d_col
+    if (include_resid_d) resid_d_col
   ))
 
-  final_outcome_X <- cbind(1, .build_matrix(dataset, final_outcome_terms))
+  final_outcome_X <- cbind(intercept = 1, .build_matrix(dataset, final_outcome_terms))
+  final_outcome_X <- .drop_constant_cols(final_outcome_X)
 
   final_outcome_fit <- stats::glm.fit(
     x      = final_outcome_X,
@@ -521,32 +651,53 @@ run_lasso_iv_selection <- function(
   )
 
   message(sprintf(
-    "  Final outcome model terms: %d (incl. generalised residual + D\u00d7residual)",
-    length(final_outcome_terms)
+    "  Final outcome model terms: %d", length(final_outcome_terms)
   ))
+
+  # ---------------------------------------------------------------------------
+  # Goodness-of-fit statistics for the final outcome model (always printed)
+  # ---------------------------------------------------------------------------
+
+  message("\n--- Goodness-of-fit: final outcome model ---")
+  gof <- .gof_stats(final_outcome_fit, dataset[[outcome]], family_stage2)
 
   # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
 
   message("\n========== LASSO IV Selection Summary ==========")
-  message(sprintf("  Part 1  union main effects:           %d", length(union_main_effects)))
-  message(sprintf("  Part 2a retained D\u00d7X interactions:   %d", length(retained_dx_only)))
-  message(sprintf("  Part 2a retained X\u00d7X interactions:   %d", length(retained_xx_interactions)))
-  message(sprintf("  Part 2b final exposure terms:         %d", length(final_exposure_terms)))
-  message(sprintf("  Final   outcome model terms:          %d", length(final_outcome_terms)))
+  message(sprintf("  Part 1  union main effects:              %d", length(union_main_effects)))
+  message(sprintf("  Outcome interactions  D\u00d7X retained:    %d", length(retained_dx_outcome)))
+  message(sprintf("  Outcome interactions  X\u00d7X retained:    %d", length(retained_xx_outcome)))
+  message(sprintf("  Exposure interactions Z\u00d7X retained:    %d", length(retained_zx_exposure)))
+  message(sprintf("  Exposure interactions X\u00d7X retained:    %d", length(retained_xx_exposure)))
+  message(sprintf("  Final exposure model terms:              %d", length(final_exposure_terms)))
+  message(sprintf("  Final outcome model terms:               %d", length(final_outcome_terms)))
+  message(sprintf("  D\u00d7residual interaction included:        %s", include_resid_d))
   message("=================================================\n")
 
   list(
-    union_main_effects        = union_main_effects,
-    retained_dx_interactions  = retained_dx_interactions,
-    final_exposure_terms      = final_exposure_terms,
-    generalised_residuals     = generalised_residuals,
-    final_outcome_terms       = final_outcome_terms,
-    final_outcome_fit         = final_outcome_fit,
-    cvfit_p1_exposure         = cvfit_p1_exposure,
-    cvfit_p1_outcome          = cvfit_p1_outcome,
-    cvfit_p2a_outcome         = cvfit_p2a_outcome,
-    cvfit_p2b_exposure        = cvfit_p2b_exposure
+    union_main_effects          = union_main_effects,
+    retained_dx_outcome         = retained_dx_outcome,
+    retained_xx_outcome         = retained_xx_outcome,
+    retained_dx_xx_outcome      = retained_dx_xx_outcome,
+    retained_zx_exposure        = retained_zx_exposure,
+    retained_xx_exposure        = retained_xx_exposure,
+    final_exposure_terms        = final_exposure_terms,
+    generalised_residuals       = generalised_residuals,
+    final_outcome_terms         = final_outcome_terms,
+    final_outcome_fit           = final_outcome_fit,
+    gof                         = gof,
+    cvfit_p1_exposure           = cvfit_p1_exposure,
+    cvfit_p1_outcome            = cvfit_p1_outcome,
+    cvfit_outcome_interactions  = cvfit_outcome_interactions,
+    cvfit_exposure_interactions = cvfit_exposure_interactions,
+
+    prespecified_subgroups = prespecified_subgroups,
+    instrument             = instrument,
+    treatment              = treatment,
+    outcome                = outcome,
+
+    dropped_constant_cols  = dropped_constant_cols
   )
 }
