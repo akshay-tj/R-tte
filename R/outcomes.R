@@ -181,34 +181,45 @@
 # 4. Intervention-level LOS (not horizon-specific)
 # =============================================================================
 
-#' Calculate intervention-level LOS (not horizon-specific)
-#'
-#' Two variants for the intervention admission only:
-#' - `_no`: same-day admission (admidate == disdate) contributes 0 days
-#' - `_w`:  same-day admission contributes 1 day
-#'
-#' @param wide_df Tibble with `{intervention_name}_admidate` and
-#'   `{intervention_name}_disdate` columns.
-#' @param intervention_name Character scalar.
-#' @return Input tibble with `{name}_los_no` and `{name}_los_w` appended.
-#' @keywords internal
-.calc_intervention_los <- function(wide_df, intervention_name) {
-  adm_col   <- paste0(intervention_name, "_admidate")
-  dis_col   <- paste0(intervention_name, "_disdate")
-  no_ds_col <- paste0(intervention_name, "_los_no")
-  w_ds_col  <- paste0(intervention_name, "_los_w")
+#' @param proc_start_col Character scalar or NULL. Column holding procedure
+#'   start date (i.e. `starting_point`). When supplied, two additional columns
+#'   are computed: `{name}_proc_los_no` and `{name}_proc_los_w`, measuring LOS
+#'   from procedure start → discharge (Option A). When NULL (default), only
+#'   full admission LOS columns are produced.
+.calc_intervention_los <- function(wide_df, intervention_name,
+                                   proc_start_col = NULL) {
+  adm_col      <- paste0(intervention_name, "_admidate")
+  dis_col      <- paste0(intervention_name, "_disdate")
+  no_ds_col    <- paste0(intervention_name, "_los_no")
+  w_ds_col     <- paste0(intervention_name, "_los_w")
+  proc_no_col  <- paste0(intervention_name, "_proc_los_no")
+  proc_w_col   <- paste0(intervention_name, "_proc_los_w")
 
-  wide_df %>%
+  result <- wide_df %>%
     dplyr::mutate(
-      !!no_ds_col := as.integer(
-        .data[[dis_col]] - .data[[adm_col]]
-      ),
-      !!w_ds_col := dplyr::if_else(
+      # Full admission LOS (admission date → discharge)
+      !!no_ds_col := as.integer(.data[[dis_col]] - .data[[adm_col]]),
+      !!w_ds_col  := dplyr::if_else(
         .data[[adm_col]] == .data[[dis_col]],
         1L,
         as.integer(.data[[dis_col]] - .data[[adm_col]])
       )
     )
+
+  if (!is.null(proc_start_col)) {
+    result <- result %>%
+      dplyr::mutate(
+        # Procedure LOS (procedure start date → discharge, Option A)
+        # Identical to full admission LOS when admission date == procedure date.
+        !!proc_no_col := as.integer(.data[[dis_col]] - .data[[proc_start_col]]),
+        !!proc_w_col  := dplyr::if_else(
+          .data[[proc_start_col]] == .data[[dis_col]],
+          1L,
+          as.integer(.data[[dis_col]] - .data[[proc_start_col]])
+        )
+      )
+  }
+  result
 }
 
 # =============================================================================
@@ -233,8 +244,10 @@
 #' Fanaroff et al. 2019 (doi:10.1161/CIRCOUTCOMES.118.004755),
 #' Vaena et al. 2025 (doi:10.1038/s41598-025-14526-7).
 #'
-#' @param hes_merged Long tibble after `.merge_overlapping_admissions()`.
-#' @param cohort_dates Tibble with `study_id`, `starting_point`, `interv_date`.
+#' @param hes_merged Long tibble after deduplication. One row per
+#'   `study_id` / `hes_admission_date` / `hes_discharge_date`.
+#' @param cohort_dates Tibble with `study_id`, `starting_point`,
+#'   `interv_admi_date`, `interv_date`.
 #' @param mortality_clean Tibble with `study_id`, `death_date`.
 #' @param horizon Integer. Follow-up window in days.
 #' @param intervention_name Character scalar.
@@ -247,37 +260,49 @@
   mortality_clean,
   horizon,
   intervention_name,
-  include_pre_intervention
+  include_pre_intervention, 
+  exclude_day_stay_readmissions = TRUE # TO DO: NEED TO CLARIFY WHAT THIS ARGUMENT IS FOR CLEARLY IN THE DOCS
 ) {
   h_suf <- paste0("_", horizon, "d")
   name  <- intervention_name
 
   # Filter HES to window [starting_point, starting_point + horizon], classify
-  hes_in_window <- hes_merged %>%
+   hes_in_window <- hes_merged %>%
     dplyr::inner_join(cohort_dates, by = "study_id") %>%
     dplyr::filter(
-      hes_admission_date >= starting_point,
-      hes_admission_date <= starting_point + horizon
+      # Include index admission even if hes_admission_date < starting_point
+      # (occurs when procedure start date > admission date). All other
+      # admissions must start within [starting_point, starting_point + horizon].
+      hes_admission_date == interv_admi_date |
+        (hes_admission_date >= starting_point &
+           hes_admission_date <= starting_point + horizon)
     ) %>%
-    # TODO: pre/post boundary is currently interv_date (nvr_admission_date).
-    # Once NVR-HES matching is stable, consider using nvr_procedure_date as
-    # the boundary instead — it is >= nvr_admission_date and more precisely
-    # marks when the intervention occurred within the admission episode.
-    # Would require passing a separate procedure_date_col argument and
-    # joining it onto cohort_dates here.
     dplyr::mutate(
+      # Role: index admission identified by interv_admi_date (NVR admission
+      # date), not interv_date (procedure start date). Pre/post boundary
+      # remains interv_date.
       role = dplyr::case_when(
-        hes_admission_date == interv_date ~ "intervention",
-        hes_admission_date <  interv_date ~ "pre",
-        hes_admission_date >  interv_date ~ "post"
+        hes_admission_date == interv_admi_date ~ "intervention",
+        hes_admission_date <  interv_date      ~ "pre",
+        hes_admission_date >  interv_admi_date      ~ "post"
       ),
-      los_no = as.integer(hes_discharge_date - hes_admission_date),
+      # LOS for intervention: starts from starting_point (procedure start date)
+      # not admission date — Option A: only days in hospital after procedure
+      # count. For non-elective where admission == procedure date, this is
+      # identical to admission → discharge.
+      .effective_start = dplyr::if_else(
+        role == "intervention",
+        starting_point,
+        hes_admission_date
+      ),
+      los_no = as.integer(hes_discharge_date - .effective_start),
       los_w  = dplyr::if_else(
-        hes_admission_date == hes_discharge_date,
+        .effective_start == hes_discharge_date,
         1L,
-        as.integer(hes_discharge_date - hes_admission_date)
+        as.integer(hes_discharge_date - .effective_start)
       )
-    )
+    ) %>%
+    dplyr::select(-.effective_start)
   
   # Warn if post-intervention admissions per patient unusually high for
   # this horizon — indicates overlapping admissions or data quality issues.
@@ -298,6 +323,7 @@
 
   # Summarise by patient and role
   role_summary <- hes_in_window %>%
+    dplyr::filter(!is.na(role)) %>%
     dplyr::group_by(study_id, role) %>%
     dplyr::summarise(
       los_no    = sum(los_no, na.rm = TRUE),
@@ -351,12 +377,25 @@
     dplyr::select(-.pre_no, -.pre_w)
 
   # Binary readmission flags
+  # Binary readmission flag — excludes day-stay admissions per
+  # exclude_day_stay_readmissions. LOS is unaffected: _no naturally
+  # contributes 0 for day-stays, _w counts them as 1 day.
+  post_n_for_flag <- hes_in_window %>%
+    dplyr::filter(role == "post") %>%
+    { if (exclude_day_stay_readmissions)
+        dplyr::filter(., hes_admission_date != hes_discharge_date)
+      else . } %>%
+    dplyr::count(study_id, name = "post_n_flag")
+
   result <- result %>%
+    dplyr::left_join(post_n_for_flag, by = "study_id") %>%
     dplyr::mutate(
       !!paste0("readmit_post_", name, h_suf) := dplyr::if_else(
-        dplyr::coalesce(post_n_admissions, 0L) > 0L, 1L, 0L
+        dplyr::coalesce(post_n_flag, 0L) > 0L, 1L, 0L
       )
-    )
+    ) %>%
+    dplyr::select(-post_n_flag)
+
   if (include_pre_intervention) {
     result <- result %>%
       dplyr::mutate(
@@ -495,12 +534,14 @@
 #' @param intervention_name Character scalar naming the intervention, e.g.
 #'   `"bypass_surg"`. Used as a prefix/infix in all output column names.
 #'   Maximum 14 characters (Stata 32-char constraint — see Details).
+#' @param intervention_admission_date_col Character scalar. Column in `cohort`
+#'   holding the NVR admission date for the index intervention. Used solely to
+#'   identify the corresponding HES admission row (matched on
+#'   `hes_admission_date`). Defaults to `"nvr_admission_date"`.
 #' @param intervention_date_col Character scalar. Column in `cohort` holding
-#'   the NVR admission date for the index intervention. Used to identify the
-#'   corresponding HES admission row (matched on `hes_admission_date`), and
-#'   as the boundary that classifies all other admissions as pre or post.
-#'   Defaults to `"nvr_admission_date"` — correct for both elective and
-#'   non-elective bypass studies.
+#'   the NVR procedure start date. Used as the pre/post boundary — admissions
+#'   before this date are classified as pre-intervention, admissions on or
+#'   after as post-intervention. Defaults to `"nvr_procedure_start_date"`.
 #' @param starting_point_col Character scalar. Column in `cohort` representing
 #'   time zero. Defaults to `"starting_point"`, which `build_cohort()` always
 #'   creates. The elective bypass study used `"valid_op_date"` as time zero;
@@ -520,8 +561,12 @@
 #'   **Fixed columns (not horizon-specific):**
 #'   - `study_id`, `starting_point`
 #'   - `{name}_admidate`, `{name}_disdate`
-#'   - `{name}_los_no` (intervention LOS, same-day admission = 0 days)
-#'   - `{name}_los_w`  (intervention LOS, same-day admission = 1 day)
+#'   - `{name}_los_no` (intervention LOS, admission → discharge, day-stays = 0)
+#'   - `{name}_los_w`  (intervention LOS, admission → discharge, day-stays = 1)
+#'   - `{name}_proc_los_no` (intervention LOS, procedure start → discharge,
+#'     day-stays = 0; identical to `_los_no` when admission == procedure date)
+#'   - `{name}_proc_los_w`  (intervention LOS, procedure start → discharge,
+#'     day-stays = 1)
 #'   - `post_{name}_N_admidate`, `post_{name}_N_disdate` (all post-intervention
 #'     readmissions within `max(time_horizons)` days — for inspection)
 #'   - `pre_{name}_N_admidate`, `pre_{name}_N_disdate` (if
@@ -556,7 +601,15 @@
 #'
 #' **Overlap merging:** Currently disabled — overlapping admissions are not
 #' merged. DAOH is floored at 0 to match original script behaviour. See TODO
-#' in source for planned Option B implementation.
+#' in source for planned implementation.
+#' 
+#' **Index admission LOS:** When `starting_point_col` differs from
+#' `intervention_admission_date_col` (e.g. TTEs where procedure
+#' start date is after admission date), the index admission LOS is counted from
+#' `starting_point` → discharge, not admission → discharge. Only days in
+#' hospital after the procedure start contribute to LOS and DAOH outcome calc. For
+#' studies where admission date == procedure start date, this is
+#' identical to the full admission LOS.
 #'
 #' **Mortality:** Deaths before `starting_point` are never counted regardless
 #' of how close they fall to the horizon. The `abs()` in earlier analysis
@@ -572,8 +625,9 @@
 #'     hes_admissions           = hes_apc_clean,
 #'     mortality                = hes_mortality_clean,
 #'     intervention_name        = "bypass_surg",
-#'     intervention_date_col    = "bypass_surg_admidate",
-#'     starting_point_col       = "starting_point",
+#'     intervention_date_col    = "nvr_procedure_start_date",
+#'     intervention_admission_date_col = "nvr_admission_date",
+#'     starting_point_col       = "starting_point", # usually time zero, but can be any date column in `cohort`
 #'     time_horizons            = c(90, 180, 365),
 #'     include_pre_intervention = TRUE,
 #'     mortality_id_prefix      = "AB"
@@ -593,10 +647,12 @@ calculate_outcomes <- function(
   hes_admissions,
   mortality,
   intervention_name,
-  intervention_date_col    = "nvr_admission_date",
+  intervention_admission_date_col = "nvr_admission_date",
+  intervention_date_col    = "nvr_procedure_start_date",
   starting_point_col       = "starting_point",
   time_horizons            = c(90, 180, 365),
   include_pre_intervention = TRUE,
+  exclude_day_stay_readmissions = TRUE,
   mortality_id_prefix      = "AB"
 ) {
 
@@ -608,6 +664,8 @@ calculate_outcomes <- function(
     is.data.frame(cohort),
     is.data.frame(hes_admissions),
     is.data.frame(mortality),
+    is.character(intervention_admission_date_col),
+    length(intervention_admission_date_col) == 1L,
     is.character(intervention_date_col), length(intervention_date_col) == 1L,
     is.character(starting_point_col),    length(starting_point_col) == 1L,
     is.numeric(time_horizons),           all(time_horizons > 0),
@@ -619,7 +677,7 @@ calculate_outcomes <- function(
   time_horizons <- as.integer(time_horizons)
 
   .check_cols(
-    cohort, c("study_id", starting_point_col, intervention_date_col),
+    cohort, c("study_id", starting_point_col, intervention_admission_date_col, intervention_date_col),
     "cohort"
   )
   .check_cols(
@@ -635,10 +693,12 @@ calculate_outcomes <- function(
     dplyr::select(
       study_id,
       starting_point = dplyr::all_of(starting_point_col),
+      interv_admi_date = dplyr::all_of(intervention_admission_date_col),
       interv_date    = dplyr::all_of(intervention_date_col)
     ) %>%
     dplyr::mutate(
       starting_point = as.Date(starting_point),
+      interv_admi_date = as.Date(interv_admi_date),
       interv_date    = as.Date(interv_date)
     )
 
@@ -680,23 +740,39 @@ calculate_outcomes <- function(
   # Intervention admission (one row per patient, renamed to intervention_name)
   interv_wide <- hes_merged %>%
     dplyr::inner_join(
-      cohort_dates %>% dplyr::select(study_id, interv_date),
+      cohort_dates %>%
+        dplyr::select(study_id, interv_admi_date, starting_point),
       by = "study_id"
     ) %>%
-    dplyr::filter(hes_admission_date == interv_date) %>%
+    dplyr::filter(hes_admission_date == interv_admi_date) %>%
     dplyr::distinct(study_id, .keep_all = TRUE) %>%
-    dplyr::select(study_id, hes_admission_date, hes_discharge_date) %>%
+    dplyr::select(
+      study_id, hes_admission_date, hes_discharge_date, starting_point
+    ) %>%
     dplyr::rename(
       !!paste0(intervention_name, "_admidate") := hes_admission_date,
       !!paste0(intervention_name, "_disdate")  := hes_discharge_date
     ) %>%
-    .calc_intervention_los(intervention_name)
+    .calc_intervention_los(intervention_name, proc_start_col = "starting_point") %>%
+    dplyr::select(-starting_point)
+
+  # Add surgical discharge date to cohort_dates — needed to correctly classify
+  # post-intervention admissions as strictly after surgical discharge.
+  cohort_dates <- cohort_dates %>%
+    dplyr::left_join(
+      interv_wide %>%
+        dplyr::select(
+          study_id,
+          interv_disdate = !!paste0(intervention_name, "_disdate")
+        ),
+      by = "study_id"
+    )
 
   # Post-intervention readmission date columns (all within max horizon)
   post_hes <- hes_merged %>%
     dplyr::inner_join(cohort_dates, by = "study_id") %>%
     dplyr::filter(
-      hes_admission_date >  interv_date,
+      hes_admission_date >  interv_admi_date,
       hes_admission_date <= starting_point + max_h
     )
   post_wide <- .pivot_wide_admissions(post_hes, intervention_name, "post")
@@ -736,7 +812,8 @@ calculate_outcomes <- function(
       mortality_clean          = mortality_clean,
       horizon                  = h,
       intervention_name        = intervention_name,
-      include_pre_intervention = include_pre_intervention
+      include_pre_intervention = include_pre_intervention, 
+      exclude_day_stay_readmissions = TRUE
     )
   })
 
