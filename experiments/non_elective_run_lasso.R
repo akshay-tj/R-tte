@@ -44,7 +44,7 @@ non_elective_outcomes_90d <- non_elective_outcomes %>%
   )
 
 temp_90day <- read.csv("Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_clinical_effectiveness_df_270226_90dayonly.csv") %>%
-  select(STUDY_ID, medication_2, medication_1, medication_3, medication_4, instrumental_variable)
+  select(STUDY_ID, instrumental_variable)
 
 non_elective_outcomes_90d <- non_elective_outcomes_90d %>%
   left_join(
@@ -52,7 +52,7 @@ non_elective_outcomes_90d <- non_elective_outcomes_90d %>%
     by = c("study_id" = "STUDY_ID")
   )
 
-not_penalized <- c("Patient.AgeAtSurgery", "gender_F", "fontaine_4", "comorbidity_1")
+not_penalized <- c("Patient:AgeAtSurgery", "gender_F", "fontaine_4", "comorbidity_1")
 
 penalized_vars <- c(
   "smoking_ex", "smoking_current",

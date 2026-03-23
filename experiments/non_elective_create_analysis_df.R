@@ -28,24 +28,39 @@ source("R/Charlson_SCARF_scoring.R")
 # PATHS
 # =============================================================================
 
+# Input DF Paths: 
 NVR_DF_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/NVR data for ESORT.xlsx"
 HES_APC_PATH             <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/Cleaned_up_HES_data/HES_APC_2015_to_2023_variables_of_interest_only.qs"
 HES_MORT_PATH            <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_CIVREG_MORT.txt"
 AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
+
+# Input codelist paths: 
+KRT_ICD_1_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_additionalkrt.dta"
+KRT_OPCS_1_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_additionalkrt_opcs.dta"
+KRT_ICD_2_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_dialysis.dta"
+KRT_OPCS_2_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_dialysis_opcs.dta"
+KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant.dta"
+KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant_opcs.dta"
+
+# Output paths: 
 NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_230326.csv"
+
+# =============================================================================
+# Parameters to define 
 
 NVR_WANTED_COLS <- c(
   "ProcedureType", "Patient:PatientId", "Patient:AgeAtSurgery",
   "Patient:GenderCode", "NvrEpisode:AdmissionDate",
   "NvrEpisode:ProcedureStartDate", "NvrHospitalName", "LSOA",
   "RiskScores:SmokingStatus", "Indications:AmpIndicationCode",
-  "Indications:PadFontaineCode", "RiskScores:ASA",
+  "Indications:PadFontaineCode", "RiskScores:ASA", "RiskScores:Medication",
   "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode"
 )
 
 HES_APC_WANTED_COLS <- c(
   "STUDY_ID", "ADMIDATE", "EPISTART", "DISDATE", "EPIEND",
-  "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE"
+  "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", 
+  "OPERTN_4_CONCAT"
 )
 
 NVR_ID_COL        <- "Patient:PatientId"
@@ -127,10 +142,20 @@ non_elective_cohort <- nvr_linked %>%
       TRUE                                                 ~ "post_covid"
     )
   ) %>%
-  separate_out_nvr_comorbidities() %>%
-  select(-comorbidity_NA, -daystosurgery)
-
-print(sprintf("Cohort size after all selection criteria/linkage, and complete case filtering: %d", nrow(non_elective_cohort)))
+  separate_out_nvr_pipe_col(
+    col    = "RiskScores:Comorbidities",
+    prefix = "comorbidity_"
+  ) %>%
+  separate_out_nvr_pipe_col(
+    col    = "RiskScores:Medication",
+    prefix = "medication_"
+  ) %>%
+  mutate(
+    # Codes 8 and 9 are subtypes of medication group 1
+    medication_1 = if_else(medication_8 == 1L | medication_9 == 1L, 1L, medication_1)
+  ) %>%
+  select(-medication_0, -medication_5, -medication_6,
+         -medication_7, -medication_8, -medication_9)
 
 # =============================================================================
 # SECTION 4: HES — filter to cohort and compute index-admission covariates
@@ -196,6 +221,28 @@ scarf_flags <- HES_index %>%
   add_scarf_score(c(scarf_deficits, "admi_scarf", "discharge_scarf")) %>%
   select(STUDY_ID_clean, scarf_cat)
 
+# ── KRT codelist ──────────────────────────────────────────────────────────────
+krt_icd_codes <- c(
+  gsub("\\.", "", haven::read_dta(KRT_ICD_1_PATH)$icd10),
+  gsub("\\.", "", haven::read_dta(KRT_ICD_2_PATH)$icd10),
+  gsub("\\.", "", haven::read_dta(KRT_ICD_3_PATH)$icd10)
+)
+
+krt_opcs_codes <- c(
+  haven::read_dta(KRT_OPCS_1_PATH)$opcs,
+  haven::read_dta(KRT_OPCS_2_PATH)$opcs,
+  haven::read_dta(KRT_OPCS_3_PATH)$opcs
+)
+
+krt_flags <- HES_index %>%
+  add_flags_from_concat("krt_icd",  list(krt_icd  = krt_icd_codes),  "DIAG_4_CONCAT") %>%
+  add_flags_from_concat("krt_opcs", list(krt_opcs = krt_opcs_codes), "OPERTN_4_CONCAT") %>%
+  group_by(STUDY_ID_clean) %>%
+  summarise(
+    krt_yn = as.integer(any(krt_icd_yn == 1L | krt_opcs_yn == 1L, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
 # ── IMD ───────────────────────────────────────────────────────────────────────
 imd_flags <- HES_index %>%
   select(STUDY_ID_clean, ADMIDATE, IMD04_DECILE) %>%
@@ -212,6 +259,7 @@ non_elective_cohort <- non_elective_cohort %>%
   left_join(charlson_flags %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(scarf_flags   %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(imd_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
+  left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   filter(complete.cases(.))
 
 write.csv(non_elective_cohort, NON_ELECTIVE_COHORT_BASELINE_DF_PATH, row.names = FALSE)
