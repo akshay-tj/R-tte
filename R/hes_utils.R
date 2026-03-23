@@ -136,3 +136,42 @@ clean_HES_df_id_for_matching <- function(hes_df,
       !!new_col := .strip_id_prefix(.data[[id_col]], prefix_to_remove)
     )
 }
+
+# =============================================================================
+# 3. ICD-10 flag generation
+# =============================================================================
+
+#' Flag comorbidities from a concatenated ICD-10 diagnosis string
+#'
+#' For each group in `groups`, searches a comma-separated ICD-10 string column
+#' for any code matching the group's prefixes and adds a binary `0`/`1`
+#' indicator column named `<group>_yn`.
+#'
+#' @param data   A tibble / data frame.
+#' @param groups Character vector of group names to flag (must be keys in
+#'   `dict`).
+#' @param dict   Named list mapping group names to ICD-10 code prefixes
+#'   (e.g. `icd10_groups_charlson`).
+#' @param src    Name of the column containing comma-separated ICD-10 codes.
+#'   Defaults to `"DIAG_4_CONCAT"`.
+#' @return Tibble with one additional binary column per group: `<group>_yn`.
+#'
+#' @importFrom magrittr %>%
+#' @importFrom purrr map_dfc
+#' @importFrom stringr str_replace_all str_detect
+#' @importFrom tibble tibble
+#' @keywords internal
+add_flags_from_concat <- function(data, groups, dict, src = "DIAG_4_CONCAT") {
+  stopifnot(src %in% names(data))
+  s <- toupper(as.character(data[[src]]))
+  s <- stringr::str_replace_all(s, "\\s+", "")
+
+  flags <- purrr::map_dfc(groups, function(g) {
+    prefs <- dict[[g]]
+    if (is.null(prefs)) stop(sprintf("Group '%s' not in dict.", g), call. = FALSE)
+    pat <- regex(paste0("(?:^|,)(?:", paste(prefs, collapse = "|"), ")[A-Z0-9]*(?:,|$)"))
+    tibble::tibble(!!paste0(g, "_yn") := as.integer(stringr::str_detect(s, pat)))
+  })
+
+  dplyr::bind_cols(data, flags)
+}
