@@ -260,9 +260,8 @@
 #'
 #' @param dataset A data frame (or tibble) containing all required variables.
 #'   All covariates must be pre-coded as numeric (dummy variables); factor
-#'   columns are not supported. Age-squared should be pre-computed upstream
-#'   and passed in via \code{prespecified_subgroups} or
-#'   \code{penalized_main_effects}.
+#'   columns are not supported. Age-squared should be pre-computed upstream and 
+#' passed in via \code{penalized_main_effects}.
 #' @param outcome String. Name of the outcome variable.
 #' @param treatment String. Name of the binary treatment variable.
 #' @param instrument String. Name of the instrumental variable.
@@ -413,7 +412,11 @@ run_lasso_iv_selection <- function(
   # ---------------------------------------------------------------------------
   # Part 1 — Main effect selection (uniform penalty)
   # ---------------------------------------------------------------------------
-
+  # Part 1: standard LASSO with glmnet internal standardisation and uniform 0/1
+  # penalty. Z and prespecified subgroups are unpenalised in the exposure model;
+  # D and prespecified subgroups are unpenalised in the outcome model.
+  # Squared terms of Age (or any continuous variable) must be pre-computed upstream and passed in via
+  # penalized_main_effects 
   message("\n--- Part 1: Main effect selection (uniform penalty) ---")
 
   p1_exposure_preds <- unique(c(instrument, prespecified_subgroups, penalized_main_effects))
@@ -482,6 +485,10 @@ run_lasso_iv_selection <- function(
   # Penalised:   D*X (non-prespec X) + all X*X pairs
   # ---------------------------------------------------------------------------
 
+  # For identifying interaction terms: glmnet standardisation is DISABLED. Instead, a 1/SD penalty
+  # factor is used — this correctly scales the penalty for interaction terms,
+  # particularly rare binary products which have low variance and would otherwise
+  # be over-penalised. Using standardize = TRUE here would double-penalise.
   message("\n--- Outcome interaction selection (SD-based penalty) ---")
 
   dx_result   <- .add_interactions(dataset, union_main_effects, treatment, "_d")
