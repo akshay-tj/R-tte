@@ -52,7 +52,7 @@ non_elective_outcomes_90d <- non_elective_outcomes_90d %>%
     by = c("study_id" = "STUDY_ID")
   )
 
-not_penalized <- c("Patient.AgeAtSurgery", "gender_F", "fontaine_4", "comorbidity_1")
+not_penalized <- c("Patient:AgeAtSurgery", "gender_F", "fontaine_4", "comorbidity_1")
 
 penalized_vars <- c(
   "smoking_ex", "smoking_current",
