@@ -3,8 +3,10 @@
 # NVR-specific column cleaning helpers (internal).
 # All functions here are called at data ingestion — never mid-pipeline.
 #
-# Only standardise_nvr_names() is currently defined. Additional NVR-specific
-# helpers (e.g. procedure code lookups, validity flags) go here as needed.
+# Functions:
+#   standardise_nvr_names()          — two-step snake_case renamer for NVR data
+#   separate_out_nvr_comorbidities() — pivots pipe-delimited comorbidity string
+#                                      into binary indicator columns
 
 # =============================================================================
 # Internal: generic snake_case renamer (shared with hes_utils.R)
@@ -77,4 +79,42 @@ standardise_nvr_names <- function(nvr_df) {
   nvr_df %>%
     .standardise_names() %>%
     dplyr::rename(dplyr::any_of(.NVR_COLUMN_MAP))
+}
+
+# =============================================================================
+# Comorbidity parsing
+# =============================================================================
+
+#' Pivot NVR pipe-delimited comorbidity string into binary indicator columns
+#'
+#' The NVR `RiskScores:Comorbidities` column stores comorbidities as a
+#' pipe-separated string of integer codes (e.g. `"1|3|5"`). This function
+#' splits each row on `|`, pivots wide, and produces one binary column per
+#' unique code value, prefixed with `"comorbidity_"`.
+#'
+#' Rows with no comorbidities recorded (empty or `NA`) receive `0` across all
+#' indicator columns.
+#'
+#' @param df              A tibble / data frame.
+#' @param comorbidity_col Name of the pipe-separated comorbidity column.
+#'   Defaults to `"RiskScores:Comorbidities"`.
+#' @return Tibble with the comorbidity string column replaced by binary
+#'   indicator columns named `comorbidity_<code>` (e.g. `comorbidity_1`,
+#'   `comorbidity_2`, ..., `comorbidity_8`).
+#'
+#' @importFrom magrittr %>%
+#' @importFrom tidyr separate_rows pivot_wider
+#' @importFrom dplyr mutate all_of
+#' @keywords internal
+separate_out_nvr_comorbidities <- function(df,
+                                            comorbidity_col = "RiskScores:Comorbidities") {
+  df %>%
+    tidyr::separate_rows(dplyr::all_of(comorbidity_col), sep = "\\|") %>%
+    dplyr::mutate(value = 1L) %>%
+    tidyr::pivot_wider(
+      names_from   = dplyr::all_of(comorbidity_col),
+      values_from  = value,
+      names_prefix = "comorbidity_",
+      values_fill  = list(value = 0L)
+    )
 }

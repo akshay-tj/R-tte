@@ -5,13 +5,14 @@
 #
 # Functions:
 #   read_qs_df()           — reads a .qs file, retaining only wanted columns
+#   read_xlsx_df()         — reads a .xlsx file, retaining only wanted columns
 #   .standardise_names()   — generic snake_case column renamer (used at ingestion
 #                            in hes_utils.R and nvr_utils.R)
 #   .strip_id_prefix()     — strips a regex prefix from an ID vector; used by
 #                            clean_HES_df_id_for_matching() and calculate_outcomes()
 
 # =============================================================================
-# 0. .qs file reader
+# 0a. .qs file reader
 # =============================================================================
 
 #' Read a .qs file, selecting only wanted columns
@@ -42,6 +43,45 @@ read_qs_df <- function(file_path, wanted_cols) {
   }
 
   df %>% dplyr::select(dplyr::all_of(wanted_cols))
+}
+
+# =============================================================================
+# 0b. .xlsx file reader
+# =============================================================================
+
+#' Read an Excel (.xlsx) file, selecting only wanted columns
+#'
+#' Warns if any requested columns are absent from the file — returns the
+#' intersection rather than erroring. Reads only the requested columns by
+#' index for efficiency on wide sheets.
+#'
+#' @param file_path   Path to the `.xlsx` file.
+#' @param wanted_cols Character vector of column names to retain.
+#' @param sheet       Sheet index or name. Defaults to `1`.
+#' @return A tibble containing only the columns in `wanted_cols` that exist
+#'   in the file.
+#'
+#' @importFrom openxlsx read.xlsx
+#' @importFrom tibble as_tibble
+#' @keywords internal
+read_xlsx_df <- function(file_path, wanted_cols, sheet = 1) {
+  headers  <- openxlsx::read.xlsx(file_path, sheet = sheet,
+                                   rows = 1, colNames = TRUE)
+  cols_idx <- match(wanted_cols, names(headers))
+
+  missing <- wanted_cols[is.na(cols_idx)]
+  if (length(missing) > 0L) {
+    warning(
+      "read_xlsx_df: the following wanted columns were not found: ",
+      paste(missing, collapse = ", "),
+      call. = FALSE
+    )
+    cols_idx <- cols_idx[!is.na(cols_idx)]
+  }
+
+  openxlsx::read.xlsx(file_path, sheet = sheet,
+                       cols = cols_idx, detectDates = TRUE) %>%
+    tibble::as_tibble()
 }
 
 # =============================================================================
