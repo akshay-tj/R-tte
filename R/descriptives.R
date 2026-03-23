@@ -172,8 +172,8 @@ table2_outcomes <- function(data,
       mean_control = test$estimate[[1]],
       mean_interv  = test$estimate[[2]],
       difference   = diff(test$estimate),        # intervention - control
-      ci_lower     = round(-test$conf.int[[2]], 2),
-      ci_upper     = round(-test$conf.int[[1]], 2),
+      ci_lower     = round(-test$conf.int[[2]], 3),
+      ci_upper     = round(-test$conf.int[[1]], 3),
       p_value      = test$p.value
     )
   })
