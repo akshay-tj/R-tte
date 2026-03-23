@@ -39,7 +39,7 @@ NVR_WANTED_COLS <- c(
   "Patient:GenderCode", "NvrEpisode:AdmissionDate",
   "NvrEpisode:ProcedureStartDate", "NvrHospitalName", "LSOA",
   "RiskScores:SmokingStatus", "Indications:AmpIndicationCode",
-  "Indications:PadFontaineCode", "RiskScores:ASA",
+  "Indications:PadFontaineCode", "RiskScores:ASA", "RiskScores:Medication",
   "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode"
 )
 
@@ -127,10 +127,20 @@ non_elective_cohort <- nvr_linked %>%
       TRUE                                                 ~ "post_covid"
     )
   ) %>%
-  separate_out_nvr_comorbidities() %>%
-  select(-comorbidity_NA, -daystosurgery)
-
-print(sprintf("Cohort size after all selection criteria/linkage, and complete case filtering: %d", nrow(non_elective_cohort)))
+  separate_out_nvr_pipe_col(
+    col    = "RiskScores:Comorbidities",
+    prefix = "comorbidity_"
+  ) %>%
+  separate_out_nvr_pipe_col(
+    col    = "RiskScores:Medication",
+    prefix = "medication_"
+  ) %>%
+  mutate(
+    # Codes 8 and 9 are subtypes of medication group 1
+    medication_1 = if_else(medication_8 == 1L | medication_9 == 1L, 1L, medication_1)
+  ) %>%
+  select(-medication_0, -medication_5, -medication_6,
+         -medication_7, -medication_8, -medication_9)
 
 # =============================================================================
 # SECTION 4: HES — filter to cohort and compute index-admission covariates
