@@ -82,39 +82,52 @@ standardise_nvr_names <- function(nvr_df) {
 }
 
 # =============================================================================
-# Comorbidity parsing
+# Parsing NVR Pipe-Delimited String Columns (example comorbidities/medications)
 # =============================================================================
 
-#' Pivot NVR pipe-delimited comorbidity string into binary indicator columns
+#' Pivot a pipe-delimited NVR column into binary indicator columns
 #'
-#' The NVR `RiskScores:Comorbidities` column stores comorbidities as a
-#' pipe-separated string of integer codes (e.g. `"1|3|5"`). This function
-#' splits each row on `|`, pivots wide, and produces one binary column per
-#' unique code value, prefixed with `"comorbidity_"`.
-#'
-#' Rows with no comorbidities recorded (empty or `NA`) receive `0` across all
+#' Splits a pipe-separated string column on `|`, pivots wide, and produces
+#' one binary column per unique code value, prefixed with `prefix`.
+#' Rows with no value recorded (empty or `NA`) receive `0` across all
 #' indicator columns.
 #'
-#' @param df              A tibble / data frame.
-#' @param comorbidity_col Name of the pipe-separated comorbidity column.
-#'   Defaults to `"RiskScores:Comorbidities"`.
-#' @return Tibble with the comorbidity string column replaced by binary
-#'   indicator columns named `comorbidity_<code>` (e.g. `comorbidity_1`,
-#'   `comorbidity_2`, ..., `comorbidity_8`).
+#' @param df     A tibble / data frame.
+#' @param col    Name of the pipe-separated column to expand.
+#' @param prefix Prefix for generated binary columns, e.g. `"comorbidity_"`
+#'   or `"medication_"`.
+#'
+#' @examples
+#' \dontrun{
+#'   # Comorbidities
+#'   df <- separate_out_nvr_pipe_col(df,
+#'     col    = "RiskScores:Comorbidities",
+#'     prefix = "comorbidity_"
+#'   )
+#'
+#'   # Medications
+#'   df <- separate_out_nvr_pipe_col(df,
+#'     col    = "RiskScores:Medication",
+#'     prefix = "medication_"
+#'   )
+#' }
 #'
 #' @importFrom magrittr %>%
 #' @importFrom tidyr separate_rows pivot_wider
-#' @importFrom dplyr mutate all_of
+#' @importFrom dplyr mutate all_of if_else select
 #' @keywords internal
-separate_out_nvr_comorbidities <- function(df,
-                                            comorbidity_col = "RiskScores:Comorbidities") {
+separate_out_nvr_pipe_col <- function(df, col, prefix) {
   df %>%
-    tidyr::separate_rows(dplyr::all_of(comorbidity_col), sep = "\\|") %>%
+    dplyr::mutate(
+      !!col := dplyr::if_else(is.na(.data[[col]]), "0", .data[[col]])
+    ) %>%
+    tidyr::separate_rows(dplyr::all_of(col), sep = "\\|") %>%
     dplyr::mutate(value = 1L) %>%
     tidyr::pivot_wider(
-      names_from   = dplyr::all_of(comorbidity_col),
+      names_from   = dplyr::all_of(col),
       values_from  = value,
-      names_prefix = "comorbidity_",
-      values_fill  = list(value = 0L)
+      names_prefix = prefix,
+      values_fill  = list(value = 0L),
+      values_fn    = max
     )
 }
