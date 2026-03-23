@@ -177,7 +177,7 @@ for (h in TIME_HORIZONS) {
 
   export_df <- export_df %>%
     select(
-      study_id, early_surgery, instrumental_variable,
+      study_id, early_surgery, instrumental_variable, NvrHospitalName,
       all_of(not_penalized), all_of(penalized_vars),
       all_of(unname(outcome_cols)),
       any_of(all_xx_terms)
