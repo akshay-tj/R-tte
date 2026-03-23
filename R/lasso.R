@@ -328,6 +328,7 @@
 #'   }
 #'
 #' @importFrom glmnet cv.glmnet
+#' @importFrom ResourceSelection hoslem.test
 #' @export
 run_lasso_iv_selection <- function(
     dataset,
