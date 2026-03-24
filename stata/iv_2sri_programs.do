@@ -139,6 +139,10 @@ syntax, ytouse(str) version(str)
     else if "`version'" == "z_x_stage1_instrument" {
         probit $Treated $Xlist_s1_v4 $Z, cluster($clustervar)
     }
+    else if "`version'" == "no_iv" {
+        * No IV correction — Stage 1 runs but residual dropped via withIV=0
+        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+    }
     else {
         noi disp "ERROR: unknown version `version'"
         exit 198
@@ -217,32 +221,32 @@ program define compute_iv_strength
     if "`version'" == "z_only" {
 
         ivreg2 _iv_depvar $Xlist_s1_v1 ($Treated = $Z), ///
-            cluster($clustervar) first
+            cluster($clustervar) first ffirst
 
     }
     else if "`version'" == "z_x_stage2_treatment" {
 
         ivreg2 _iv_depvar $Xlist_s1_v2 ($Treated = $Z), ///
-            cluster($clustervar) first
+            cluster($clustervar) first ffirst
 
     }
     else if "`version'" == "z_x_stage1_full" {
 
         ivreg2 _iv_depvar $Xlist_s1_v3 ($Treated = $Z), ///
-            cluster($clustervar) first
+            cluster($clustervar) first ffirst
 
     }
     else if "`version'" == "z_x_stage1_instrument" {
 
         ivreg2 _iv_depvar $Xlist_s1_v4 ($Treated = $Z), ///
-            cluster($clustervar) first
+            cluster($clustervar) first ffirst
 
     }
 
     * Montiel Olea-Pflueger effective F (post ivreg2)
     weakivtest
-    local eff_f  = r(eff_F)
-    local crit5  = r(crit5)
+    local eff_f  = r(F_eff)
+    local crit5  = r(c_TSLS_5)
 
     * Kleibergen-Paap rk Wald F from ivreg2
     local kp_f   = e(rkf)
@@ -267,7 +271,7 @@ capture program drop forest_plot
 program define forest_plot
     syntax, horizon(int) results_dir(str) data_dir(str)
 
-    local versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument
+    local versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument no_iv
 
     * --------------------------
     * Read family per outcome from globals CSV
