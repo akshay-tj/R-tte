@@ -262,14 +262,16 @@ end
 * global which reflects only the last outcome set in the loop.
 * Versions on y-axis, outcomes within version, CI from bootstrap.
 * --------------------------------------------------------------------
+
 capture program drop forest_plot
 program define forest_plot
-syntax, horizon(int) results_dir(str) data_dir(str)
+    syntax, horizon(int) results_dir(str) data_dir(str)
 
     local versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument
 
+    * --------------------------
     * Read family per outcome from globals CSV
-    preserve
+    * --------------------------
     local globals_path = "`data_dir'" + "non_elective_`horizon'd_globals.csv"
     import delimited using "`globals_path'", clear varnames(1)
     local n_outcomes = _N
@@ -277,67 +279,96 @@ syntax, horizon(int) results_dir(str) data_dir(str)
         local fam_`i'     = family[`i']
         local outcome_`i' = outcome[`i']
     }
-    restore
 
-    * Collect results from bootstrap CSVs into one tempfile
+    * --------------------------
+    * Collect results into a tempfile
+    * --------------------------
     tempfile plotdata
     tempname fh
     file open `fh' using `plotdata', write replace
-    file write `fh' "outcome,version,est,ci_lo,ci_hi,label" _n
+    file write `fh' "outcome,version,est,ci_lo,ci_hi,label,family" _n
 
     foreach v of local versions {
         forvalues i = 1/`n_outcomes' {
             local o   = "`outcome_`i''"
             local fam = "`fam_`i''"
 
-            * Select pred type from family — not from global
             local pred_prefix = cond("`fam'" == "gaussian", "mystar", "mpr")
-
-            * Shorten outcome name for label (strip horizon suffix e.g. _90d)
             local o_short = regexr("`o'", "_[0-9]+d$", "")
-
             local csvfile = "`results_dir'bootstrap_results_`o'_`v'_`horizon'd.csv"
-            capture {
-                preserve
+
+            * Only import if file exists
+            capture confirm file "`csvfile'"
+            if !_rc {
                 import delimited using "`csvfile'", clear varnames(1)
 
-                * Find the All subgroup ITE row for correct pred type
-                quietly keep if strpos(stat, "`pred_prefix'") & strpos(stat, "All") & !strpos(stat, "m0") & !strpos(stat, "m1")
+                quietly keep if strpos(stat, "`pred_prefix'") & strpos(stat, "All") ///
+                    & !strpos(stat, "m0") & !strpos(stat, "m1")
+
                 if _N > 0 {
                     local est = est[1]
                     local lo  = ci_lo[1]
                     local hi  = ci_hi[1]
-                    file write `fh' "`o',`v',`est',`lo',`hi',`o_short' | `v'" _n
+                    file write `fh' ///
+                        "`o',`v',`est',`lo',`hi',`o_short' | `v',`fam'" _n
                 }
-                restore
             }
         }
     }
     file close `fh'
 
-    * Import and plot
-    preserve
+    * --------------------------
+    * Import combined data for plotting
+    * --------------------------
     import delimited using `plotdata', clear
 
-    gen row = _n
+    * --------------------------
+    * Plot 1: Continuous (Gaussian)
+    * --------------------------
+    keep if family == "gaussian"
+    if _N > 0 {
+        gen row = _n
+        tostring row, gen(rowstr)
+        labmask row, values(label)
 
-    * Build value label from label column
-    tostring row, gen(rowstr)
-    labmask row, values(label)
+        twoway ///
+            (rcap ci_hi ci_lo row, horizontal lcolor(gs8)) ///
+            (scatter row est, mcolor(navy) msymbol(circle)) ///
+            , ylabel(1/`=_N', valuelabel angle(0)) ///
+              xline(0, lcolor(red) lpattern(dash)) ///
+              xlabel(, format(%6.2f)) ///
+              ytitle("") xtitle("Treatment effect (continuous scale)") ///
+              title("Continuous outcomes — `horizon'-day") ///
+              legend(off) ///
+              graphregion(color(white))
 
-    twoway ///
-        (rcap ci_hi ci_lo row, horizontal lcolor(gs8)) ///
-        (scatter row est, mcolor(navy) msymbol(circle)) ///
-        , ylabel(1/`=_N', valuelabel angle(0)) ///
-          xline(0, lcolor(red) lpattern(dash)) ///
-          xlabel(, format(%6.2f)) ///
-          ytitle("") xtitle("Treatment effect estimate") ///
-          title("Clinical effectiveness — `horizon'-day outcomes") ///
-          legend(off) ///
-          graphregion(color(white))
+        graph export "`results_dir'forest_plot_continuous_`horizon'd.png", replace width(2400)
+    }
 
-    graph export "`results_dir'forest_plot_`horizon'd.png", replace width(2400)
-    restore
+    * --------------------------
+    * Plot 2: Binary / non-Gaussian
+    * --------------------------
+    import delimited using `plotdata', clear
+    keep if family != "gaussian"
+    if _N > 0 {
+        gen row = _n
+        tostring row, gen(rowstr)
+        labmask row, values(label)
+
+        twoway ///
+            (rcap ci_hi ci_lo row, horizontal lcolor(gs8)) ///
+            (scatter row est, mcolor(maroon) msymbol(circle)) ///
+            , ylabel(1/`=_N', valuelabel angle(0)) ///
+              xline(0, lcolor(red) lpattern(dash)) ///
+              xlabel(, format(%6.2f)) ///
+              ytitle("") xtitle("Treatment effect (risk / probability scale)") ///
+              title("Binary outcomes — `horizon'-day") ///
+              legend(off) ///
+              graphregion(color(white))
+
+        graph export "`results_dir'forest_plot_binary_`horizon'd.png", replace width(2400)
+    }
+
 end
 
 * --------------------------------------------------------------------
