@@ -374,3 +374,7 @@ cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d")
 outcomes_365_days <- table2_outcomes(non_elective_outcomes,
                                      cont_vars = cont_365, cat_vars = cat_365,
                                      horizon_label = "365 days")
+
+write.csv(non_elective_outcomes,
+          "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_230326.csv",
+          row.names = FALSE)
