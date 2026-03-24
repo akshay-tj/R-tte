@@ -21,7 +21,7 @@ global seed   = 37563845  // bootstrap seed
 global withIV = 1         // 1 = include generalised residual; 0 = naive
 
 * Stage 1 versions to run
-global versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument
+global versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument // no_iv
 
 * Paths
 global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/march23_lasso_outputs/"
