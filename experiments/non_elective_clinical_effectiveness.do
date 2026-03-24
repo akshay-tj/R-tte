@@ -13,10 +13,10 @@
 * ============================================================================
 
 * Timepoints to analyse (must match DTA/globals files produced by R)
-local horizons 90 // 180 365
+local horizons 90 180 365 
 
 * Bootstrap settings
-global nreps  = 20       // number of bootstrap replications
+global nreps  = 300       // number of bootstrap replications
 global seed   = 37563845  // bootstrap seed
 global withIV = 1         // 1 = include generalised residual; 0 = naive
 
