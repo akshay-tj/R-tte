@@ -131,16 +131,15 @@ syntax, ytouse(str) version(str)
         probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
     }
     else if "`version'" == "z_x_stage2_treatment" {
-        probit $Treated $Xlist_s1_v2 $Z, cluster($clustervar)
+        probit $Treated $Xlist_s1_v2 $Z $Zlist_s1_v2, cluster($clustervar)
     }
     else if "`version'" == "z_x_stage1_full" {
-        probit $Treated $Xlist_s1_v3 $Z, cluster($clustervar)
+        probit $Treated $Xlist_s1_v3 $Z $Zlist_s1_v3, cluster($clustervar)
     }
     else if "`version'" == "z_x_stage1_instrument" {
-        probit $Treated $Xlist_s1_v4 $Z, cluster($clustervar)
+        probit $Treated $Xlist_s1_v4 $Z $Zlist_s1_v4, cluster($clustervar)
     }
     else if "`version'" == "no_iv" {
-        * No IV correction — Stage 1 runs but residual dropped via withIV=0
         probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
     }
     else {
@@ -215,7 +214,6 @@ program define compute_iv_strength
 
     syntax, version(str) outcome(str)
 
-    * Use short alias to avoid temp variable name length issues in ivreg2
     quietly gen _iv_depvar = `outcome'
 
     if "`version'" == "z_only" {
@@ -226,35 +224,31 @@ program define compute_iv_strength
     }
     else if "`version'" == "z_x_stage2_treatment" {
 
-        ivreg2 _iv_depvar $Xlist_s1_v2 ($Treated = $Z), ///
+        ivreg2 _iv_depvar $Xlist_s1_v2 ($Treated = $Z $Zlist_s1_v2), ///
             cluster($clustervar) first ffirst
 
     }
     else if "`version'" == "z_x_stage1_full" {
 
-        ivreg2 _iv_depvar $Xlist_s1_v3 ($Treated = $Z), ///
+        ivreg2 _iv_depvar $Xlist_s1_v3 ($Treated = $Z $Zlist_s1_v3), ///
             cluster($clustervar) first ffirst
 
     }
     else if "`version'" == "z_x_stage1_instrument" {
 
-        ivreg2 _iv_depvar $Xlist_s1_v4 ($Treated = $Z), ///
+        ivreg2 _iv_depvar $Xlist_s1_v4 ($Treated = $Z $Zlist_s1_v4), ///
             cluster($clustervar) first ffirst
 
     }
 
-    * Montiel Olea-Pflueger effective F (post ivreg2)
     weakivtest
     local eff_f  = r(F_eff)
     local crit5  = r(c_TSLS_5)
-
-    * Kleibergen-Paap rk Wald F from ivreg2
     local kp_f   = e(rkf)
 
     post iv_strength ///
         ("`outcome'") ("`version'") (`eff_f') (`crit5') (`kp_f')
 
-    * Clean up
     drop _iv_depvar
 
 end
@@ -409,4 +403,46 @@ syntax, outcome(str) version(str) horizon(int) results_dir(str)
 
     file close `fh'
     restore
+end
+
+* --------------------------------------------------------------------
+* Propensity score overlap plots
+* For the specified version and outcome, runs the Stage 1 probit on the
+* full sample to get predicted probabilities of treatment (propensity scores)
+* Plots histograms of propensity scores by treatment group to visualize
+* overlap. Only implemented for version 4 (LASSO-optimised) and 90-day outcomes
+capture program drop plot_ps_overlap
+program define plot_ps_overlap
+    syntax, version(str) outcome(str) horizon(int) results_dir(str)
+
+    * Run Stage 1 probit on full sample to get propensity scores
+    if "`version'" == "z_only" {
+        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+    }
+    else if "`version'" == "z_x_stage2_treatment" {
+        probit $Treated $Xlist_s1_v2 $Z $Zlist_s1_v2, cluster($clustervar)
+    }
+    else if "`version'" == "z_x_stage1_full" {
+        probit $Treated $Xlist_s1_v3 $Z $Zlist_s1_v3, cluster($clustervar)
+    }
+    else if "`version'" == "z_x_stage1_instrument" {
+        probit $Treated $Xlist_s1_v4 $Z $Zlist_s1_v4, cluster($clustervar)
+    }
+
+    tempvar ps
+    predict `ps', pr
+
+    local out_label = regexr("`outcome'", "_[0-9]+d$", "")
+
+    twoway ///
+        (hist `ps' if $Treated == 1, color(red%30) frequency) ///
+        (hist `ps' if $Treated == 0, color(blue%60) frequency), ///
+        legend(order(1 "Treated (early)" 2 "Control (late)")) ///
+        xtitle("Predicted probability of early surgery") ///
+        ytitle("Frequency") ///
+        title("`out_label' | `version'") ///
+        graphregion(color(white))
+
+    graph export "`results_dir'ps_overlap_`version'.png", replace width(1600)
+
 end

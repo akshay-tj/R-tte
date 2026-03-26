@@ -79,28 +79,28 @@ penalized_vars <- c(
 # NOTE: instrumental_variable loaded externally — will move into pipeline later
 iv_data <- read.csv(IV_PATH) %>%
   select(STUDY_ID, instrumental_variable) %>%
-  mutate(STUDY_ID = as.character(STUDY_ID))
+  mutate(STUDY_ID = as.integer(STUDY_ID))
 
 base_df <- non_elective_outcomes %>%
   left_join(
     non_elective_cohort %>%
-      mutate(STUDY_ID = as.character(STUDY_ID)) %>%
+      mutate(STUDY_ID = as.integer(STUDY_ID)) %>%
       select(-early_surgery),
     by = c("study_id" = "STUDY_ID")
   ) %>%
   left_join(iv_data, by = c("study_id" = "STUDY_ID")) %>%
   rename(
-    ageatsurgery    = `Patient:AgeAtSurgery`,
+    ageatsurgery    = `Patient.AgeAtSurgery`,
     nvrhospitalname = NvrHospitalName
   ) %>%
   mutate(
     age_sq           = ageatsurgery^2,  # NOTE: penalised per protocol, not forced
-    gender_F         = if_else(`Patient:GenderCode` == 2, 1L, 0L),
-    smoking_ex       = if_else(`RiskScores:SmokingStatus` == 2, 1L, 0L),
-    smoking_current  = if_else(`RiskScores:SmokingStatus` == 3, 1L, 0L),
-    asa_2            = if_else(`RiskScores:ASA` == 2, 1L, 0L),
-    asa_3            = if_else(`RiskScores:ASA` == 3, 1L, 0L),
-    asa_4            = if_else(`RiskScores:ASA` == 4, 1L, 0L),
+    gender_F         = if_else(`Patient.GenderCode` == 2, 1L, 0L),
+    smoking_ex       = if_else(`RiskScores.SmokingStatus` == 2, 1L, 0L),
+    smoking_current  = if_else(`RiskScores.SmokingStatus` == 3, 1L, 0L),
+    asa_2            = if_else(`RiskScores.ASA` == 2, 1L, 0L),
+    asa_3            = if_else(`RiskScores.ASA` == 3, 1L, 0L),
+    asa_4            = if_else(`RiskScores.ASA` == 4, 1L, 0L),
     scarf_mild       = if_else(scarf_cat == "Mild Frailty (2/3)",     1L, 0L),
     scarf_moderate   = if_else(scarf_cat == "Moderate Frailty (4/5)", 1L, 0L),
     scarf_severe     = if_else(scarf_cat == "Severe Frailty (6+)",    1L, 0L),
@@ -110,8 +110,8 @@ base_df <- non_elective_outcomes %>%
     imd_q3           = if_else(IMD_quintile == "Q3",                  1L, 0L),
     imd_q4           = if_else(IMD_quintile == "Q4",                  1L, 0L),
     imd_q5           = if_else(IMD_quintile == "Q5 (most deprived)",  1L, 0L),
-    fontaine_4       = if_else(`Indications:PadFontaineCode` == 4,    1L, 0L),
-    amp_tissueloss   = if_else(`Indications:AmpIndicationCode` == 4,  1L, 0L),
+    fontaine_4       = if_else(`Indications.PadFontaineCode` == 4,    1L, 0L),
+    amp_tissueloss   = if_else(`Indications.AmpIndicationCode` == 4,  1L, 0L),
     surgyr_2016      = if_else(year_of_surgery == 2016, 1L, 0L),
     surgyr_2017      = if_else(year_of_surgery == 2017, 1L, 0L),
     surgyr_2018      = if_else(year_of_surgery == 2018, 1L, 0L),
@@ -258,52 +258,52 @@ for (h in TIME_HORIZONS) {
       gsub("_iv$", "", res$retained_zx_exposure)
     ))
 
-    # Stage 2 Xlist: main effects + X*X outcome + D*X cols
-    # D*X cols here as pre-generated products — no factor syntax in Stata
+    # Stage 2 Xlist: union main effects + X*X outcome + D*X cols
     xlist_stage2 <- unique(c(
       res$union_main_effects,
       res$retained_xx_outcome,
       dx_cols_this_outcome
     ))
 
-    # Stage 1 Xlists — main effects + X*X only (no D*X) + version-specific Z*X
-    # Z is always added separately in Stata via $Z in the model call
-
-    # z_only: main effects + X*X outcome, no Z*X
+    # Stage 1 Xlists: controls only (union main effects + X*X)
+    # Z*X terms moved to zlists — they are excluded instruments, not controls
     xlist_stage1_z_only <- unique(c(
       res$union_main_effects,
       res$retained_xx_outcome
     ))
+    zlist_stage1_z_only <- character(0)
 
-    # z_x_stage2_treatment: + Z*stage2 cols (Z x D*X base vars)
     xlist_stage1_z_x_stage2_treatment <- unique(c(
       res$union_main_effects,
-      res$retained_xx_outcome,
-      paste0("z_x_stage2_", dx_vars_this_outcome)
+      res$retained_xx_outcome
     ))
+    zlist_stage1_z_x_stage2_treatment <- paste0("z_x_stage2_", dx_vars_this_outcome)
 
-    # z_x_stage1_full: + Z*full cols (Z x all main effects)
     xlist_stage1_z_x_stage1_full <- unique(c(
       res$union_main_effects,
-      res$retained_xx_outcome,
-      paste0("z_x_full_", res$union_main_effects)
+      res$retained_xx_outcome
     ))
+    zlist_stage1_z_x_stage1_full <- paste0("z_x_full_", res$union_main_effects)
 
-    # z_x_stage1_instrument: uses X*X exposure + Z*stage1 cols (LASSO Part 2b)
+    # v4: controls use X*X exposure (not outcome) per LASSO Part 2b selection
     xlist_stage1_z_x_stage1_instrument <- unique(c(
       res$union_main_effects,
-      res$retained_xx_exposure,
-      paste0("z_x_stage1_", zx_vars_this_outcome)
+      res$retained_xx_exposure
     ))
+    zlist_stage1_z_x_stage1_instrument <- paste0("z_x_stage1_", zx_vars_this_outcome)
 
     data.frame(
       outcome      = outcome_col,
       family       = OUTCOME_FAMILIES[[outcome_name]],
-      xlist_s2     = paste(xlist_stage2,                       collapse = " "),
-      xlist_s1_v1  = paste(xlist_stage1_z_only,                collapse = " "),
-      xlist_s1_v2  = paste(xlist_stage1_z_x_stage2_treatment,  collapse = " "),
-      xlist_s1_v3  = paste(xlist_stage1_z_x_stage1_full,       collapse = " "),
-      xlist_s1_v4  = paste(xlist_stage1_z_x_stage1_instrument, collapse = " "),
+      xlist_s2     = paste(xlist_stage2,                            collapse = " "),
+      xlist_s1_v1  = paste(xlist_stage1_z_only,                    collapse = " "),
+      xlist_s1_v2  = paste(xlist_stage1_z_x_stage2_treatment,      collapse = " "),
+      xlist_s1_v3  = paste(xlist_stage1_z_x_stage1_full,           collapse = " "),
+      xlist_s1_v4  = paste(xlist_stage1_z_x_stage1_instrument,     collapse = " "),
+      zlist_s1_v1  = paste(zlist_stage1_z_only,                    collapse = " "),
+      zlist_s1_v2  = paste(zlist_stage1_z_x_stage2_treatment,      collapse = " "),
+      zlist_s1_v3  = paste(zlist_stage1_z_x_stage1_full,           collapse = " "),
+      zlist_s1_v4  = paste(zlist_stage1_z_x_stage1_instrument,     collapse = " "),
       stringsAsFactors = FALSE
     )
   })
