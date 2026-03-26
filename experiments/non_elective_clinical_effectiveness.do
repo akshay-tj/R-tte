@@ -53,6 +53,28 @@ postfile iv_strength str50 outcome str50 version ///
     double eff_f double crit5 double kp_f ///
     using `iv_strength_file', replace
 
+* ── Propensity score overlap plots (versions 1-3, 90d data, run once) ────────
+local dta_path_90    = "$data_dir" + "non_elective_90d.dta"
+local globals_path_90 = "$data_dir" + "non_elective_90d_globals.csv"
+
+use "`dta_path_90'", clear
+encode nvrhospitalname, gen(HospitalCluster)
+gen All = 1
+
+preserve
+import delimited using "`globals_path_90'", clear varnames(1)
+global Xlist_s1_v1 = xlist_s1_v1[1]
+global Xlist_s1_v2 = xlist_s1_v2[1]
+global Xlist_s1_v3 = xlist_s1_v3[1]
+global Zlist_s1_v2 = zlist_s1_v2[1]
+global Zlist_s1_v3 = zlist_s1_v3[1]
+restore
+
+foreach version in z_only z_x_stage2_treatment z_x_stage1_full {
+    plot_ps_overlap, version("`version'") outcome("daoh_bypass_surg_90d") ///
+        horizon(90) results_dir("$results_dir")
+}
+
 * ============================================================================
 * MAIN LOOP — timepoints
 * ============================================================================
@@ -107,9 +129,14 @@ foreach horizon of local horizons {
         global Xlist_s1_v2 = xlist_s1_v2[`i']
         global Xlist_s1_v3 = xlist_s1_v3[`i']
         global Xlist_s1_v4 = xlist_s1_v4[`i']
+        global Zlist_s1_v1 = zlist_s1_v1[`i']   // NEW
+        global Zlist_s1_v2 = zlist_s1_v2[`i']   // NEW
+        global Zlist_s1_v3 = zlist_s1_v3[`i']   // NEW
+        global Zlist_s1_v4 = zlist_s1_v4[`i']   // NEW
         restore
         global OutcomeFamily `family'
-
+		
+		noi di "About to run IV strength for outcome `outcome', version z_only"
         * ── IV strength ──────────────────────────────────────────────
         * Versions 1-3: first stage Xlist same across outcomes — run once
         * per version using first outcome only (F-stat unaffected by outcome)
@@ -120,6 +147,13 @@ foreach horizon of local horizons {
             }
         }
         compute_iv_strength, version("z_x_stage1_instrument") outcome("`outcome'")
+        
+         * ── Propensity score overlap plots (version 4, 90d only) ────
+        if `i' == 1 & `horizon' == 90 {
+            plot_ps_overlap, version("z_x_stage1_instrument") ///
+                outcome("`outcome'") ///
+                horizon(90) results_dir("$results_dir")
+        }
 
         * ── Bootstrap loop over versions ─────────────────────────────
         foreach version of global versions {
