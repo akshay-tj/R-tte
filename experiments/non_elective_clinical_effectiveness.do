@@ -18,18 +18,17 @@ local horizons 90 180 365
 * Bootstrap settings
 global nreps  = 300       // number of bootstrap replications
 global seed   = 37563845  // bootstrap seed
-global withIV = 1         // 1 = include generalised residual; 0 = naive
 
 * Stage 1 versions to run
-global versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument // no_iv
+global versions model2 // no_iv model1
 
 * Paths
-global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/march23_lasso_outputs/"
+global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs/"
 global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/clinical_effectiveness_results/"
 global programs_dir "C:/Users/LSHAJ82/Documents/GitHub/R-tte/stata/"
 
 * Subgroups for recycled predictions
-global Subgrouplist All
+global Subgrouplist All gender_F gender_M fontaine_4 fontaine_not4 comorbidity_1 comorbidity_not1 krt_yn krt_no surgyr_2015 surgyr_2016 surgyr_2017 surgyr_2018 surgyr_2019 surgyr_2020 surgyr_2021 surgyr_2022 surgyr_2023
 
 * Cluster variable
 global clustervar HospitalCluster
@@ -53,28 +52,6 @@ postfile iv_strength str50 outcome str50 version ///
     double eff_f double crit5 double kp_f ///
     using `iv_strength_file', replace
 
-* ── Propensity score overlap plots (versions 1-3, 90d data, run once) ────────
-local dta_path_90    = "$data_dir" + "non_elective_90d.dta"
-local globals_path_90 = "$data_dir" + "non_elective_90d_globals.csv"
-
-use "`dta_path_90'", clear
-encode nvrhospitalname, gen(HospitalCluster)
-gen All = 1
-
-preserve
-import delimited using "`globals_path_90'", clear varnames(1)
-global Xlist_s1_v1 = xlist_s1_v1[1]
-global Xlist_s1_v2 = xlist_s1_v2[1]
-global Xlist_s1_v3 = xlist_s1_v3[1]
-global Zlist_s1_v2 = zlist_s1_v2[1]
-global Zlist_s1_v3 = zlist_s1_v3[1]
-restore
-
-foreach version in z_only z_x_stage2_treatment z_x_stage1_full {
-    plot_ps_overlap, version("`version'") outcome("daoh_bypass_surg_90d") ///
-        horizon(90) results_dir("$results_dir")
-}
-
 * ============================================================================
 * MAIN LOOP — timepoints
 * ============================================================================
@@ -90,11 +67,13 @@ foreach horizon of local horizons {
     use "`dta_path'", clear
     encode nvrhospitalname, gen(HospitalCluster)
     gen All = 1
+    gen gender_M         = 1 - gender_F
+    gen fontaine_not4    = 1 - fontaine_4
+    gen comorbidity_not1 = 1 - comorbidity_1
+    gen krt_no           = 1 - krt_yn
+    gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
 
     * ── Read globals CSV ─────────────────────────────────────────────
-    * Columns: outcome, family, xlist_s2, xlist_s1_v1, xlist_s1_v2,
-    *          xlist_s1_v3, xlist_s1_v4
-    * See mapping table in CLAUDE.md for full contents of each xlist.
     import delimited using "`globals_path'", clear varnames(1)
 
     local n_outcomes = _N
@@ -107,6 +86,11 @@ foreach horizon of local horizons {
     use "`dta_path'", clear
     encode nvrhospitalname, gen(HospitalCluster)
     gen All = 1
+    gen gender_M         = 1 - gender_F
+    gen fontaine_not4    = 1 - fontaine_4
+    gen comorbidity_not1 = 1 - comorbidity_1
+    gen krt_no           = 1 - krt_yn
+    gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
 
     * Build Outcomelist global
     global Outcomelist
@@ -124,37 +108,29 @@ foreach horizon of local horizons {
         * (direct string assignment avoids Stata local macro length limits)
         preserve
         import delimited using "`globals_path'", clear varnames(1)
-        global Xlist_s2    = xlist_s2[`i']
-        global Xlist_s1_v1 = xlist_s1_v1[`i']
-        global Xlist_s1_v2 = xlist_s1_v2[`i']
-        global Xlist_s1_v3 = xlist_s1_v3[`i']
-        global Xlist_s1_v4 = xlist_s1_v4[`i']
-        global Zlist_s1_v1 = zlist_s1_v1[`i']   // NEW
-        global Zlist_s1_v2 = zlist_s1_v2[`i']   // NEW
-        global Zlist_s1_v3 = zlist_s1_v3[`i']   // NEW
-        global Zlist_s1_v4 = zlist_s1_v4[`i']   // NEW
+        global Xlist_s2_m1   = xlist_s2_m1[`i']
+        global Xlist_s1_m1   = xlist_s1_m1[`i']
+        global Xlist_s2_m2   = xlist_s2_m2[`i']
+        global Xlist_s1_m2   = xlist_s1_m2[`i']
+        global Zlist_s1_m2   = zlist_s1_m2[`i']
+        global Dxlist_s2_m2  = dxlist_s2_m2[`i']
+        global Xlist_s2_noiv = xlist_s2_noiv[`i']
         restore
         global OutcomeFamily `family'
 		
-		noi di "About to run IV strength for outcome `outcome', version z_only"
         * ── IV strength ──────────────────────────────────────────────
-        * Versions 1-3: first stage Xlist same across outcomes — run once
-        * per version using first outcome only (F-stat unaffected by outcome)
-        * Version 4: Xlist differs per outcome — run for each outcome
-        if `i' == 1 {
-            foreach version in z_only z_x_stage2_treatment z_x_stage1_full {
-                compute_iv_strength, version("`version'") outcome("`outcome'")
-            }
-        }
-        compute_iv_strength, version("z_x_stage1_instrument") outcome("`outcome'")
-        
-         * ── Propensity score overlap plots (version 4, 90d only) ────
-        if `i' == 1 & `horizon' == 90 {
-            plot_ps_overlap, version("z_x_stage1_instrument") ///
-                outcome("`outcome'") ///
-                horizon(90) results_dir("$results_dir")
-        }
+        *compute_iv_strength, version("z_x_stage1_instrument") outcome("`outcome'")
+        compute_iv_strength, version("model1") outcome("`outcome'")
+		compute_iv_strength, version("model2") outcome("`outcome'")
+        * no_iv has no first stage — IV strength not applicable
 
+		* Propensity score overlap — all horizons
+        * Both model1 and model2 have outcome-specific Stage 1 specs
+        *plot_ps_overlap, version("model1") outcome("`outcome'") ///
+            horizon(`horizon') results_dir("$results_dir")
+        *plot_ps_overlap, version("model2") outcome("`outcome'") ///
+            horizon(`horizon') results_dir("$results_dir")
+            
         * ── Bootstrap loop over versions ─────────────────────────────
         foreach version of global versions {
 
@@ -162,8 +138,8 @@ foreach horizon of local horizons {
             SetOutcomeNumber
 
             * Select pred types by family
-            if "`family'" == "gaussian" local predlist xb ystar pr e
-            if "`family'" == "binomial" local predlist pr
+            if "$OutcomeFamily" == "gaussian" local predlist xb ystar pr e
+			if "$OutcomeFamily" == "binomial" local predlist pr
 
             * Build bootstats local
             local bootstats
@@ -197,15 +173,24 @@ foreach horizon of local horizons {
                 outcome("`outcome'") ///
                 version("`version'") ///
                 horizon(`horizon') ///
-                results_dir("$results_dir")
+                results_dir("$results_dir") ///
+                dta_path("`dta_path'")
+
+            use "`dta_path'", clear
+            encode nvrhospitalname, gen(HospitalCluster)
+            gen All = 1
+            gen gender_M         = 1 - gender_F
+            gen fontaine_not4    = 1 - fontaine_4
+            gen comorbidity_not1 = 1 - comorbidity_1
+            gen krt_no           = 1 - krt_yn
+            gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
         }
     }
-
-    * ── Forest plot for this timepoint ───────────────────────────────
-    forest_plot, horizon(`horizon') results_dir("$results_dir") data_dir("$data_dir")
 }
 
 * ── Save IV strength results ──────────────────────────────────────────
 postclose iv_strength
 use `iv_strength_file', clear
+* Cast to string to ensure proper export
+tostring outcome version, replace force
 export delimited using "${results_dir}iv_strength_all.csv", replace
