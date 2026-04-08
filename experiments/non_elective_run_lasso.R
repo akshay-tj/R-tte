@@ -27,8 +27,10 @@ source("R/lasso.R")
 # PATHS
 # =============================================================================
 
-IV_PATH    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_clinical_effectiveness_df_270226_90dayonly.csv"
-OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/march23_lasso_outputs/"
+IV_PATH    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_IV_080426.csv"
+non_elective_outcomes_path <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_080426.csv"
+non_elective_cohort_path  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
+OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs/"
 
 # =============================================================================
 # PARAMETERS
@@ -53,7 +55,7 @@ OUTCOME_FAMILIES <- c(
 )
 
 # Prespecified subgroups — always forced in, unpenalised, D*X and Z*X forced
-not_penalized <- c("ageatsurgery", "gender_F", "fontaine_4", "comorbidity_1")
+not_penalized <- c("ageatsurgery", "gender_F", "fontaine_4", "comorbidity_1", "krt_yn")
 
 # Penalised main effects — age_sq included here per protocol (not forced)
 penalized_vars <- c(
@@ -78,8 +80,11 @@ penalized_vars <- c(
 
 # NOTE: instrumental_variable loaded externally — will move into pipeline later
 iv_data <- read.csv(IV_PATH) %>%
-  select(STUDY_ID, instrumental_variable) %>%
-  mutate(STUDY_ID = as.integer(STUDY_ID))
+  select(STUDY_ID, instrumental_variable)
+
+non_elective_outcomes <- read.csv(non_elective_outcomes_path)
+
+non_elective_cohort <- read.csv(non_elective_cohort_path)
 
 base_df <- non_elective_outcomes %>%
   left_join(
@@ -121,7 +126,12 @@ base_df <- non_elective_outcomes %>%
     surgyr_2022      = if_else(year_of_surgery == 2022, 1L, 0L),
     surgyr_2023      = if_else(year_of_surgery == 2023, 1L, 0L),
     covid_period     = if_else(covid_time_period == "covid",      1L, 0L),
-    postcovid_period = if_else(covid_time_period == "post_covid", 1L, 0L)
+    postcovid_period = if_else(covid_time_period == "post_covid", 1L, 0L),
+    medication_1     = as.integer(medication_1),
+    medication_2     = as.integer(medication_2),
+    medication_3     = as.integer(medication_3),
+    medication_4     = as.integer(medication_4), 
+    krt_yn           = as.integer(krt_yn)
   )
 
 # =============================================================================
@@ -165,7 +175,6 @@ for (h in TIME_HORIZONS) {
   # ── Union of X*X terms across all outcomes at this horizon
   all_xx_outcome_terms  <- unique(unlist(lapply(h_results, `[[`, "retained_xx_outcome")))
   all_xx_exposure_terms <- unique(unlist(lapply(h_results, `[[`, "retained_xx_exposure")))
-  all_xx_terms          <- unique(c(all_xx_outcome_terms, all_xx_exposure_terms))
 
   # ── Union of D*X and Z*X base variables across all outcomes
   all_dx_base <- unique(gsub("_d$",  "", unlist(lapply(h_results, `[[`, "retained_dx_outcome"))))
@@ -182,7 +191,7 @@ for (h in TIME_HORIZONS) {
   export_df <- base_df
 
   # Pre-generate X*X interaction columns
-  for (term in all_xx_terms) {
+  for (term in unique(c(all_xx_exposure_terms, all_xx_outcome_terms))) {
     if (!term %in% names(export_df)) {
       parts <- strsplit(term, "_x_")[[1]]
       export_df[[term]] <- export_df[[parts[1]]] * export_df[[parts[2]]]
@@ -200,27 +209,16 @@ for (h in TIME_HORIZONS) {
   #   z_x_stage2_{var} — Z x D*X base vars (for z_x_stage2_treatment version)
   #   z_x_stage1_{var} — Z x Z*X base vars (for z_x_stage1_instrument version)
   #   z_x_full_{var}   — Z x all main effects (for z_x_stage1_full version)
-  all_main_base <- unique(c(not_penalized, penalized_vars))
 
   # z_x_stage2_: Z x vars selected for Stage 2 (Mlist / D*X base vars)
   #   used in z_x_stage2_treatment version of Stage 1
   # z_x_stage1_: Z x vars selected for Stage 1 (Zlist / Z*X base vars, LASSO Part 2b)
   #   used in z_x_stage1_instrument version of Stage 1
   # z_x_full_:   Z x all main effects — used in z_x_stage1_full version
-  z_x_stage2_col_names <- paste0("z_x_stage2_", dx_base_vars)
   z_x_stage1_col_names <- paste0("z_x_stage1_", zx_base_vars)
-  zx_full_col_names    <- paste0("z_x_full_",   all_main_base)
 
-  for (i in seq_along(dx_base_vars)) {
-    export_df[[z_x_stage2_col_names[i]]] <- export_df[["instrumental_variable"]] * export_df[[dx_base_vars[i]]]
-  }
   for (i in seq_along(zx_base_vars)) {
     export_df[[z_x_stage1_col_names[i]]] <- export_df[["instrumental_variable"]] * export_df[[zx_base_vars[i]]]
-  }
-  for (i in seq_along(all_main_base)) {
-    if (all_main_base[i] %in% names(export_df)) {
-      export_df[[zx_full_col_names[i]]] <- export_df[["instrumental_variable"]] * export_df[[all_main_base[i]]]
-    }
   }
 
   export_df <- export_df %>%
@@ -228,11 +226,10 @@ for (h in TIME_HORIZONS) {
       study_id, early_surgery, instrumental_variable, nvrhospitalname,
       all_of(not_penalized), all_of(penalized_vars),
       all_of(unname(outcome_cols)),
-      any_of(all_xx_terms),
+      any_of(all_xx_exposure_terms),
+      any_of(all_xx_outcome_terms),
       any_of(dx_col_names),
-      any_of(z_x_stage2_col_names),
-      any_of(z_x_stage1_col_names),
-      any_of(zx_full_col_names)
+      any_of(z_x_stage1_col_names)
     )
 
   # ── Write DTA
@@ -252,58 +249,51 @@ for (h in TIME_HORIZONS) {
     ))
     dx_cols_this_outcome <- paste0("d_x_", dx_vars_this_outcome)
 
-    # Z*X base vars for this outcome (prespec + LASSO-selected, Part 2b)
+    # Z*X base vars for this outcome: prespec (always forced) +
+    # D*X-mirrored (forced in Part 2 Step 1) + LASSO-selected (penalised pool)
     zx_vars_this_outcome <- unique(c(
       not_penalized,
+      gsub("_d$",  "", res$retained_dx_outcome),
       gsub("_iv$", "", res$retained_zx_exposure)
     ))
 
-    # Stage 2 Xlist: union main effects + X*X outcome + D*X cols
-    xlist_stage2 <- unique(c(
-      res$union_main_effects,
-      res$retained_xx_outcome,
-      dx_cols_this_outcome
-    ))
-
-    # Stage 1 Xlists: controls only (union main effects + X*X)
-    # Z*X terms moved to zlists — they are excluded instruments, not controls
-    xlist_stage1_z_only <- unique(c(
-      res$union_main_effects,
-      res$retained_xx_outcome
-    ))
-    zlist_stage1_z_only <- character(0)
-
-    xlist_stage1_z_x_stage2_treatment <- unique(c(
-      res$union_main_effects,
-      res$retained_xx_outcome
-    ))
-    zlist_stage1_z_x_stage2_treatment <- paste0("z_x_stage2_", dx_vars_this_outcome)
-
-    xlist_stage1_z_x_stage1_full <- unique(c(
-      res$union_main_effects,
-      res$retained_xx_outcome
-    ))
-    zlist_stage1_z_x_stage1_full <- paste0("z_x_full_", res$union_main_effects)
-
-    # v4: controls use X*X exposure (not outcome) per LASSO Part 2b selection
-    xlist_stage1_z_x_stage1_instrument <- unique(c(
+    # Model 1: homogeneous — no D*X in Stage 2, no Z*X in Stage 1
+    xlist_s2_m1 <- unique(c(
       res$union_main_effects,
       res$retained_xx_exposure
     ))
-    zlist_stage1_z_x_stage1_instrument <- paste0("z_x_stage1_", zx_vars_this_outcome)
+    xlist_s1_m1 <- xlist_s2_m1
 
+    # Model 2: heterogeneous — D*X in Stage 2, Z*X in Stage 1
+    xlist_s2_m2 <- unique(c(
+      res$union_main_effects,
+      res$retained_xx_exposure
+    ))
+
+    xlist_s1_m2 <- unique(c(
+      res$union_main_effects,
+      res$retained_xx_exposure
+    ))
+    zlist_s1_m2 <- paste0("z_x_stage1_", zx_vars_this_outcome)
+    dxlist_s2_m2 <- dx_cols_this_outcome
+
+    # no_iv: plain regression — X*X from outcome model (Part 2 Step 1),
+    # no D*X, no retained_xx_exposure (that is exposure-model specific)
+    xlist_s2_noiv <- unique(c(
+      res$union_main_effects,
+      res$retained_xx_outcome
+    ))
+    
     data.frame(
       outcome      = outcome_col,
       family       = OUTCOME_FAMILIES[[outcome_name]],
-      xlist_s2     = paste(xlist_stage2,                            collapse = " "),
-      xlist_s1_v1  = paste(xlist_stage1_z_only,                    collapse = " "),
-      xlist_s1_v2  = paste(xlist_stage1_z_x_stage2_treatment,      collapse = " "),
-      xlist_s1_v3  = paste(xlist_stage1_z_x_stage1_full,           collapse = " "),
-      xlist_s1_v4  = paste(xlist_stage1_z_x_stage1_instrument,     collapse = " "),
-      zlist_s1_v1  = paste(zlist_stage1_z_only,                    collapse = " "),
-      zlist_s1_v2  = paste(zlist_stage1_z_x_stage2_treatment,      collapse = " "),
-      zlist_s1_v3  = paste(zlist_stage1_z_x_stage1_full,           collapse = " "),
-      zlist_s1_v4  = paste(zlist_stage1_z_x_stage1_instrument,     collapse = " "),
+      xlist_s2_m1  = paste(xlist_s2_m1,                            collapse = " "),
+      xlist_s1_m1  = paste(xlist_s1_m1,                            collapse = " "),
+      xlist_s2_m2  = paste(xlist_s2_m2,                            collapse = " "),
+      xlist_s1_m2  = paste(xlist_s1_m2,                            collapse = " "),
+      zlist_s1_m2  = paste(zlist_s1_m2,                            collapse = " "),
+      dxlist_s2_m2 = paste(dxlist_s2_m2, collapse = " "),
+      xlist_s2_noiv  = paste(xlist_s2_noiv, collapse = " "), 
       stringsAsFactors = FALSE
     )
   })
