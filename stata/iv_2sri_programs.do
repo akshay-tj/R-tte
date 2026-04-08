@@ -10,6 +10,11 @@
 *   forest_plot           — forest plot of treatment effects by version/outcome
 *   extract_bootstrap_results — extracts point estimates and CIs from bootstrap DTA
 *
+* version options for subgroupboot:
+*   model1  — homogeneous: Z only, no Z*X in Stage 1, no D*X in Stage 2
+*   model2  — heterogeneous: Z + Z*X in Stage 1, D*X in Stage 2
+*   no_iv   — plain tobit/probit, no instrument, no residual correction ///
+*    
 * NOTE: weakivtest implements Montiel Olea-Pflueger effective F statistic.
 * Designed for linear IV (2SLS) — used here as a diagnostic approximation
 * for the probit first stage. Interpret with caution.
@@ -118,6 +123,8 @@ end
 capture program drop subgroupboot
 program define subgroupboot, rclass
 syntax, ytouse(str) version(str)
+    * Reset residual global — only populated for model1/model2
+    global GenResidual
 
     global OutcometoUse `ytouse'
     SetOutcomeNumber
@@ -132,20 +139,17 @@ syntax, ytouse(str) version(str)
         probit $Treated $Xlist_s1_m2 $Z $Zlist_s1_m2, cluster($clustervar)
     }
     else if "`version'" == "no_iv" {
-        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+        * Plain regression — no instrument, no first stage
     }
     else {
         noi disp "ERROR: unknown version `version'"
         exit 198
     }
 
-    capture drop gen_resid
-    predict gen_resid, score
-    if $withIV == 1 {
+    if "`version'" != "no_iv" {
+        capture drop gen_resid
+        predict gen_resid, score
         global GenResidual gen_resid
-    }
-    else {
-        global GenResidual
     }
 
     * ── Stage 2: outcome model ───────────────────────────────────────
@@ -157,12 +161,8 @@ syntax, ytouse(str) version(str)
         local s2_xlist $Xlist_s2_m2 $Dxlist_s2_m2
     }
     else if "`version'" == "no_iv" {
-        local s2_xlist $Xlist_s2
+        local s2_xlist $Xlist_s2_noiv
     }
-        else {
-            noi disp "ERROR: unknown version `version'"
-            exit 198
-        }
 
     * Tobit: continuous outcomes (daoh, total_los) with horizon-specific limits
     if "$OutcomeFamily" == "gaussian" {
@@ -229,7 +229,12 @@ program define compute_iv_strength
 	else if "`version'" == "model2" {
     ivreg2 _iv_depvar $Xlist_s1_m2 ($Treated = $Z $Zlist_s1_m2), ///
         cluster($clustervar) first ffirst
-}
+    }
+    else if "`version'" == "no_iv" {
+        * No first stage — IV strength not applicable, skip
+        drop _iv_depvar
+        exit
+    }
 
     weakivtest
     local eff_f  = r(F_eff)
@@ -276,34 +281,26 @@ syntax, outcome(str) version(str) horizon(int) results_dir(str) dta_path(str)
 
     file close `fh'
 
-    use "`dta_path'", clear
-    encode nvrhospitalname, gen(HospitalCluster)
-    gen All = 1
-
 end
 * --------------------------------------------------------------------
 * Propensity score overlap plots
-* For the specified version and outcome, runs the Stage 1 probit on the
-* full sample to get predicted probabilities of treatment (propensity scores)
-* Plots histograms of propensity scores by treatment group to visualize
-* overlap. Only implemented for version 4 (LASSO-optimised) and 90-day outcomes
+* Runs Stage 1 probit on full sample to get predicted propensity scores.
+* Plots histograms by treatment group to visualise overlap.
+* Runs for model1 and model2, all horizons, per outcome.
 * --------------------------------------------------------------------
 capture program drop plot_ps_overlap
 program define plot_ps_overlap
     syntax, version(str) outcome(str) horizon(int) results_dir(str)
 
-    * Run Stage 1 probit on full sample to get propensity scores
-    if "`version'" == "z_only" {
-        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+   if "`version'" == "model1" {
+        probit $Treated $Xlist_s1_m1 $Z, cluster($clustervar)
     }
-    else if "`version'" == "z_x_stage2_treatment" {
-        probit $Treated $Xlist_s1_v2 $Z $Zlist_s1_v2, cluster($clustervar)
+    else if "`version'" == "model2" {
+        probit $Treated $Xlist_s1_m2 $Z $Zlist_s1_m2, cluster($clustervar)
     }
-    else if "`version'" == "z_x_stage1_full" {
-        probit $Treated $Xlist_s1_v3 $Z $Zlist_s1_v3, cluster($clustervar)
-    }
-    else if "`version'" == "z_x_stage1_instrument" {
-        probit $Treated $Xlist_s1_v4 $Z $Zlist_s1_v4, cluster($clustervar)
+    else {
+        noi disp "ERROR: unknown version `version'"
+        exit 198
     }
 
     tempvar ps
