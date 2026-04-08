@@ -1,5 +1,9 @@
 #### new iv pipeline df 
+library(tidyverse)
+
 source("R/create_iv.R")
+source("R/utils.R")
+source("R/cohort.R")
 # =============================================================================
 # Parameters to define 
 
@@ -14,6 +18,9 @@ NVR_WANTED_COLS <- c(
 
 NVR_ID_COL        <- "Patient:PatientId"
 NVR_ADMISSION_COL <- "NvrEpisode:AdmissionDate"
+AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
+NVR_DF_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/NVR data for ESORT.xlsx"
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
 
 # =============================================================================
 # SECTION 2: NVR cohort — inclusion, linkage, deduplication
@@ -67,10 +74,8 @@ nvr_lookback_only_deduped <- nvr_deduped %>%
 nvr_lookback_only_deduped <- nvr_lookback_only_deduped %>% 
   rename(NvrEpisode.AdmissionDate = `NvrEpisode:AdmissionDate`, 
          Patient.PatientId = `Patient:PatientId`) %>% 
-  select(early_surgery, NvrEpisode.AdmissionDate, NvrHospitalName) %>% 
+  select(early_surgery, Patient.PatientId, NvrEpisode.AdmissionDate, NvrHospitalName) %>% 
   mutate(include_flag = 0L)
-
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
 
 non_elective_cohort_baseline_df <- read_csv(NON_ELECTIVE_COHORT_BASELINE_DF_PATH) %>% 
                                    select(STUDY_ID, early_surgery, `NvrEpisode:AdmissionDate`, NvrHospitalName) %>% 
@@ -99,14 +104,16 @@ combined_df <- combined_df %>%
 
 # for missing values fill with median of non missing values
 median_iv <- median(combined_df$instrumental_variable, na.rm = TRUE)
+
 combined_df <- combined_df %>%
   mutate(instrumental_variable = if_else(is.na(instrumental_variable), median_iv, instrumental_variable))
 
 # create a df with study id and instrumental variable 
 iv_df <- combined_df %>% 
+  filter(include_flag == 1) %>%
   select(Patient.PatientId, instrumental_variable) %>% 
   # STUDY_ID should be integer format to match with the main analysis df
   rename(STUDY_ID = Patient.PatientId) %>%
-  mutate(STUDY_ID = as.integer(STUDY_ID))
+  mutate(STUDY_ID = as.character(STUDY_ID))
 
 write_csv(iv_df, "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_IV_080426.csv")
