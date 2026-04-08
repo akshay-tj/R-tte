@@ -60,7 +60,9 @@ cat_vars_t1 <- c(
   "Indications:PadFontaineCode",
   "Indications:AmpIndicationCode",
   "year_of_surgery",
-  "krt_yn"
+  "krt_yn", 
+  "rcs_ch_cat",      # already a factor — levels: None, One, Two, Three+
+  "scarf_cat"
 )
 
 descriptive_table(
