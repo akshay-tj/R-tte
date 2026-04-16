@@ -10,6 +10,11 @@
 *   forest_plot           — forest plot of treatment effects by version/outcome
 *   extract_bootstrap_results — extracts point estimates and CIs from bootstrap DTA
 *
+* version options for subgroupboot:
+*   model1  — homogeneous: Z only, no Z*X in Stage 1, no D*X in Stage 2
+*   model2  — heterogeneous: Z + Z*X in Stage 1, D*X in Stage 2
+*   no_iv   — plain tobit/probit, no instrument, no residual correction ///
+*    
 * NOTE: weakivtest implements Montiel Olea-Pflueger effective F statistic.
 * Designed for linear IV (2SLS) — used here as a diagnostic approximation
 * for the probit first stage. Interpret with caution.
@@ -108,10 +113,9 @@ end
 * in the appropriate Xlist global — no factor variable syntax needed.
 *
 * version options (aligned with R globals CSV):
-*   z_only                — Stage 1: Xlist + Z only
-*   z_x_stage2_treatment  — Stage 1: Xlist + Z + Z*Mlist cols (pre-generated)
-*   z_x_stage1_full       — Stage 1: Xlist + Z + Z*all-main-effects cols
-*   z_x_stage1_instrument — Stage 1: Xlist_stage1 + Z + Z*Zlist cols (LASSO-optimised)
+*   model1: homogeneous treatment effects — Z only, no Z*X
+*   model2: heterogeneous treatment effects — Z + Z*X
+*   no_iv:  no IV — same Xlist as model 1, but Z and Z*X terms removed
 *
 * Each version reads its Xlist from the corresponding global set in the
 * experiment script from the globals CSV.
@@ -119,50 +123,51 @@ end
 capture program drop subgroupboot
 program define subgroupboot, rclass
 syntax, ytouse(str) version(str)
+    * Reset residual global — only populated for model1/model2
+    global GenResidual
 
     global OutcometoUse `ytouse'
     SetOutcomeNumber
 
     * ── Stage 1: exposure model ──────────────────────────────────────
-    * Each version uses a different Stage 1 Xlist (main effects + X*X +
-    * version-specific Z*X cols). D*X cols are NOT in Stage 1.
-    * Z is added separately via $Z.
-    if "`version'" == "z_only" {
-        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+    if "`version'" == "model1" {
+        * Model 1: homogeneous — Z only, no Z*X
+        probit $Treated $Xlist_s1_m1 $Z, cluster($clustervar)
     }
-    else if "`version'" == "z_x_stage2_treatment" {
-        probit $Treated $Xlist_s1_v2 $Z $Zlist_s1_v2, cluster($clustervar)
-    }
-    else if "`version'" == "z_x_stage1_full" {
-        probit $Treated $Xlist_s1_v3 $Z $Zlist_s1_v3, cluster($clustervar)
-    }
-    else if "`version'" == "z_x_stage1_instrument" {
-        probit $Treated $Xlist_s1_v4 $Z $Zlist_s1_v4, cluster($clustervar)
+    else if "`version'" == "model2" {
+        * Model 2: heterogeneous — Z + Z*X
+        probit $Treated $Xlist_s1_m2 $Z $Zlist_s1_m2, cluster($clustervar)
     }
     else if "`version'" == "no_iv" {
-        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+        * Plain regression — no instrument, no first stage
     }
     else {
         noi disp "ERROR: unknown version `version'"
         exit 198
     }
 
-    capture drop gen_resid
-    predict gen_resid, score
-    if $withIV == 1 {
+    if "`version'" != "no_iv" {
+        capture drop gen_resid
+        predict gen_resid, score
         global GenResidual gen_resid
-    }
-    else {
-        global GenResidual
     }
 
     * ── Stage 2: outcome model ───────────────────────────────────────
-    * Same across all versions — uses Xlist_s2 which includes
-    * main effects + X*X outcome terms + pre-generated D*X cols.
+    * Resolve Stage 2 Xlist based on version
+    if "`version'" == "model1" {
+        local s2_xlist $Xlist_s2_m1
+    }
+    else if "`version'" == "model2" {
+        local s2_xlist $Xlist_s2_m2 $Dxlist_s2_m2
+    }
+    else if "`version'" == "no_iv" {
+        local s2_xlist $Xlist_s2_noiv
+    }
+
     * Tobit: continuous outcomes (daoh, total_los) with horizon-specific limits
     if "$OutcomeFamily" == "gaussian" {
         local ul = $Horizon
-        tobit $OutcometoUse $Xlist_s2 $Treated $GenResidual, ///
+        tobit $OutcometoUse `s2_xlist' $Treated $GenResidual, ///
             ll(0) ul(`ul') vce(cluster $clustervar)
 
         recycled_predictions, type(xb)    model(tobit)
@@ -173,7 +178,7 @@ syntax, ytouse(str) version(str)
 
     * Probit: binary outcomes (mortality, readmission)
     if "$OutcomeFamily" == "binomial" {
-        probit $OutcometoUse $Xlist_s2 $Treated $GenResidual, ///
+        probit $OutcometoUse `s2_xlist' $Treated $GenResidual, ///
             cluster($clustervar)
 
         recycled_predictions, type(pr) model(probit)
@@ -215,30 +220,20 @@ program define compute_iv_strength
     syntax, version(str) outcome(str)
 
     quietly gen _iv_depvar = `outcome'
-
-    if "`version'" == "z_only" {
-
-        ivreg2 _iv_depvar $Xlist_s1_v1 ($Treated = $Z), ///
-            cluster($clustervar) first ffirst
-
+	
+	if "`version'" == "model1" {
+    ivreg2 _iv_depvar $Xlist_s1_m1 ($Treated = $Z), ///
+        cluster($clustervar) first ffirst
+	}
+	
+	else if "`version'" == "model2" {
+    ivreg2 _iv_depvar $Xlist_s1_m2 ($Treated = $Z $Zlist_s1_m2), ///
+        cluster($clustervar) first ffirst
     }
-    else if "`version'" == "z_x_stage2_treatment" {
-
-        ivreg2 _iv_depvar $Xlist_s1_v2 ($Treated = $Z $Zlist_s1_v2), ///
-            cluster($clustervar) first ffirst
-
-    }
-    else if "`version'" == "z_x_stage1_full" {
-
-        ivreg2 _iv_depvar $Xlist_s1_v3 ($Treated = $Z $Zlist_s1_v3), ///
-            cluster($clustervar) first ffirst
-
-    }
-    else if "`version'" == "z_x_stage1_instrument" {
-
-        ivreg2 _iv_depvar $Xlist_s1_v4 ($Treated = $Z $Zlist_s1_v4), ///
-            cluster($clustervar) first ffirst
-
+    else if "`version'" == "no_iv" {
+        * No first stage — IV strength not applicable, skip
+        drop _iv_depvar
+        exit
     }
 
     weakivtest
@@ -252,122 +247,6 @@ program define compute_iv_strength
     drop _iv_depvar
 
 end
-* --------------------------------------------------------------------
-* Forest plot — one per timepoint
-* Reads bootstrap result CSVs produced by extract_bootstrap_results.
-* Effect measure: ystar for tobit (gaussian), pr for probit (binomial)
-* Family is read from the globals CSV per outcome — not from $OutcomeFamily
-* global which reflects only the last outcome set in the loop.
-* Versions on y-axis, outcomes within version, CI from bootstrap.
-* --------------------------------------------------------------------
-
-capture program drop forest_plot
-program define forest_plot
-    syntax, horizon(int) results_dir(str) data_dir(str)
-
-    local versions z_only z_x_stage2_treatment z_x_stage1_full z_x_stage1_instrument no_iv
-
-    * --------------------------
-    * Read family per outcome from globals CSV
-    * --------------------------
-    local globals_path = "`data_dir'" + "non_elective_`horizon'd_globals.csv"
-    import delimited using "`globals_path'", clear varnames(1)
-    local n_outcomes = _N
-    forvalues i = 1/`n_outcomes' {
-        local fam_`i'     = family[`i']
-        local outcome_`i' = outcome[`i']
-    }
-
-    * --------------------------
-    * Collect results into a tempfile
-    * --------------------------
-    tempfile plotdata
-    tempname fh
-    file open `fh' using `plotdata', write replace
-    file write `fh' "outcome,version,est,ci_lo,ci_hi,label,family" _n
-
-    foreach v of local versions {
-        forvalues i = 1/`n_outcomes' {
-            local o   = "`outcome_`i''"
-            local fam = "`fam_`i''"
-
-            local pred_prefix = cond("`fam'" == "gaussian", "mystar", "mpr")
-            local o_short = regexr("`o'", "_[0-9]+d$", "")
-            local csvfile = "`results_dir'bootstrap_results_`o'_`v'_`horizon'd.csv"
-
-            * Only import if file exists
-            capture confirm file "`csvfile'"
-            if !_rc {
-                import delimited using "`csvfile'", clear varnames(1)
-
-                quietly keep if strpos(stat, "`pred_prefix'") & strpos(stat, "All") ///
-                    & !strpos(stat, "m0") & !strpos(stat, "m1")
-
-                if _N > 0 {
-                    local est = est[1]
-                    local lo  = ci_lo[1]
-                    local hi  = ci_hi[1]
-                    file write `fh' ///
-                        "`o',`v',`est',`lo',`hi',`o_short' | `v',`fam'" _n
-                }
-            }
-        }
-    }
-    file close `fh'
-
-    * --------------------------
-    * Import combined data for plotting
-    * --------------------------
-    import delimited using `plotdata', clear
-
-    * --------------------------
-    * Plot 1: Continuous (Gaussian)
-    * --------------------------
-    keep if family == "gaussian"
-    if _N > 0 {
-        gen row = _n
-        tostring row, gen(rowstr)
-        labmask row, values(label)
-
-        twoway ///
-            (rcap ci_hi ci_lo row, horizontal lcolor(gs8)) ///
-            (scatter row est, mcolor(navy) msymbol(circle)) ///
-            , ylabel(1/`=_N', valuelabel angle(0)) ///
-              xline(0, lcolor(red) lpattern(dash)) ///
-              xlabel(, format(%6.2f)) ///
-              ytitle("") xtitle("Treatment effect (continuous scale)") ///
-              title("Continuous outcomes — `horizon'-day") ///
-              legend(off) ///
-              graphregion(color(white))
-
-        graph export "`results_dir'forest_plot_continuous_`horizon'd.png", replace width(2400)
-    }
-
-    * --------------------------
-    * Plot 2: Binary / non-Gaussian
-    * --------------------------
-    import delimited using `plotdata', clear
-    keep if family != "gaussian"
-    if _N > 0 {
-        gen row = _n
-        tostring row, gen(rowstr)
-        labmask row, values(label)
-
-        twoway ///
-            (rcap ci_hi ci_lo row, horizontal lcolor(gs8)) ///
-            (scatter row est, mcolor(maroon) msymbol(circle)) ///
-            , ylabel(1/`=_N', valuelabel angle(0)) ///
-              xline(0, lcolor(red) lpattern(dash)) ///
-              xlabel(, format(%6.2f)) ///
-              ytitle("") xtitle("Treatment effect (risk / probability scale)") ///
-              title("Binary outcomes — `horizon'-day") ///
-              legend(off) ///
-              graphregion(color(white))
-
-        graph export "`results_dir'forest_plot_binary_`horizon'd.png", replace width(2400)
-    }
-
-end
 
 * --------------------------------------------------------------------
 * Extract bootstrap results from saved DTA
@@ -379,9 +258,8 @@ end
 * --------------------------------------------------------------------
 capture program drop extract_bootstrap_results
 program define extract_bootstrap_results
-syntax, outcome(str) version(str) horizon(int) results_dir(str)
+syntax, outcome(str) version(str) horizon(int) results_dir(str) dta_path(str)
 
-    preserve
     use "`results_dir'bootstrap_`outcome'_`version'_`horizon'd.dta", clear
 
     tempname fh
@@ -402,31 +280,27 @@ syntax, outcome(str) version(str) horizon(int) results_dir(str)
     }
 
     file close `fh'
-    restore
-end
 
+end
 * --------------------------------------------------------------------
 * Propensity score overlap plots
-* For the specified version and outcome, runs the Stage 1 probit on the
-* full sample to get predicted probabilities of treatment (propensity scores)
-* Plots histograms of propensity scores by treatment group to visualize
-* overlap. Only implemented for version 4 (LASSO-optimised) and 90-day outcomes
+* Runs Stage 1 probit on full sample to get predicted propensity scores.
+* Plots histograms by treatment group to visualise overlap.
+* Runs for model1 and model2, all horizons, per outcome.
+* --------------------------------------------------------------------
 capture program drop plot_ps_overlap
 program define plot_ps_overlap
     syntax, version(str) outcome(str) horizon(int) results_dir(str)
 
-    * Run Stage 1 probit on full sample to get propensity scores
-    if "`version'" == "z_only" {
-        probit $Treated $Xlist_s1_v1 $Z, cluster($clustervar)
+   if "`version'" == "model1" {
+        probit $Treated $Xlist_s1_m1 $Z, cluster($clustervar)
     }
-    else if "`version'" == "z_x_stage2_treatment" {
-        probit $Treated $Xlist_s1_v2 $Z $Zlist_s1_v2, cluster($clustervar)
+    else if "`version'" == "model2" {
+        probit $Treated $Xlist_s1_m2 $Z $Zlist_s1_m2, cluster($clustervar)
     }
-    else if "`version'" == "z_x_stage1_full" {
-        probit $Treated $Xlist_s1_v3 $Z $Zlist_s1_v3, cluster($clustervar)
-    }
-    else if "`version'" == "z_x_stage1_instrument" {
-        probit $Treated $Xlist_s1_v4 $Z $Zlist_s1_v4, cluster($clustervar)
+    else {
+        noi disp "ERROR: unknown version `version'"
+        exit 198
     }
 
     tempvar ps

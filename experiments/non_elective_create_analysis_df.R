@@ -19,7 +19,6 @@ source("R/hes_utils.R")
 source("R/nvr_utils.R")
 source("R/utils.R")
 source("R/outcomes.R")
-source("R/descriptives.R")
 source("R/lasso.R")
 source("R/cohort.R")
 source("R/Charlson_SCARF_scoring.R")
@@ -43,7 +42,7 @@ KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/
 KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant_opcs.dta"
 
 # Output paths: 
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_230326.csv"
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
 
 # =============================================================================
 # Parameters to define 
@@ -123,16 +122,32 @@ nvr_linked <- nvr_deduped %>%
 # =============================================================================
 # SECTION 3: Non-elective cohort — arm assignment and derived variables
 # =============================================================================
-
 non_elective_cohort <- nvr_linked %>%
+  { 
+    message("Admission mode counts (before filter):")
+    print(count(., `NvrEpisode:AdmissionModeCode`, sort = TRUE))
+    . 
+  } %>%
   filter(`NvrEpisode:AdmissionModeCode` == 2) %>%
+  { message("After admission mode filter — rows: ", nrow(.),
+            " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } %>%
   mutate(
     daystosurgery = as.numeric(
       as.Date(`NvrEpisode:ProcedureStartDate`) -
       as.Date(`NvrEpisode:AdmissionDate`)
     )
   ) %>%
+  {
+    message("daystosurgery breakdown (before filter):")
+    message("  daystosurgery <= 0  : ", sum(.$daystosurgery <= 0,  na.rm = TRUE), " rows")
+    message("  daystosurgery 1-21  : ", sum(.$daystosurgery >= 1 & .$daystosurgery <= 21, na.rm = TRUE), " rows")
+    message("  daystosurgery > 21  : ", sum(.$daystosurgery > 21,  na.rm = TRUE), " rows")
+    message("  daystosurgery NA    : ", sum(is.na(.$daystosurgery)), " rows")
+    .
+  } %>%
   filter(daystosurgery > 0 & daystosurgery <= 21) %>%
+  { message("After daystosurgery filter — rows: ", nrow(.),
+            " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } %>%
   mutate(
     early_surgery = if_else(daystosurgery <= 5, 1L, 0L),
     year_of_surgery = year(as.Date(`NvrEpisode:ProcedureStartDate`)),
@@ -156,7 +171,7 @@ non_elective_cohort <- nvr_linked %>%
   ) %>%
   select(-medication_0, -medication_5, -medication_6,
          -medication_7, -medication_8, -medication_9)
-
+         
 # =============================================================================
 # SECTION 4: HES — filter to cohort and compute index-admission covariates
 # =============================================================================
@@ -339,10 +354,6 @@ non_elective_outcomes <- calculate_outcomes(
   mortality_id_prefix             = ""
 )
 
-# =============================================================================
-# SECTION 9: Descriptive outcomes tables (Table 2)
-# =============================================================================
-
 non_elective_outcomes <- non_elective_outcomes %>%
   left_join(
     non_elective_cohort %>%
@@ -351,30 +362,6 @@ non_elective_outcomes <- non_elective_outcomes %>%
     by = "study_id"
   )
 
-cont_90 <- c("daoh_bypass_surg_90d", "total_los_no_90d",
-             "bypass_surg_proc_los_no", "post_bypass_surg_los_no_90d",
-             "bypass_surg_los_no")
-cat_90  <- c("readmit_post_bypass_surg_90d", "died_post_bypass_surg_90d")
-outcomes_90_days <- table2_outcomes(non_elective_outcomes,
-                                    cont_vars = cont_90, cat_vars = cat_90,
-                                    horizon_label = "90 days")
-
-cont_180 <- c("daoh_bypass_surg_180d", "total_los_no_180d",
-              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_180d",
-              "bypass_surg_los_no")
-cat_180  <- c("readmit_post_bypass_surg_180d", "died_post_bypass_surg_180d")
-outcomes_180_days <- table2_outcomes(non_elective_outcomes,
-                                     cont_vars = cont_180, cat_vars = cat_180,
-                                     horizon_label = "180 days")
-
-cont_365 <- c("daoh_bypass_surg_365d", "total_los_no_365d",
-              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_365d",
-              "bypass_surg_los_no")
-cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d")
-outcomes_365_days <- table2_outcomes(non_elective_outcomes,
-                                     cont_vars = cont_365, cat_vars = cat_365,
-                                     horizon_label = "365 days")
-
 write.csv(non_elective_outcomes,
-          "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_230326.csv",
+          "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_080426.csv",
           row.names = FALSE)
