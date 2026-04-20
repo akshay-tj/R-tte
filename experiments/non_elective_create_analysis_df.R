@@ -53,7 +53,8 @@ NVR_WANTED_COLS <- c(
   "NvrEpisode:ProcedureStartDate", "NvrHospitalName", "LSOA",
   "RiskScores:SmokingStatus", "Indications:AmpIndicationCode",
   "Indications:PadFontaineCode", "RiskScores:ASA", "RiskScores:Medication",
-  "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode"
+  "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode", 
+  "PostOp:CompFurtherSurgeryCode"
 )
 
 HES_APC_WANTED_COLS <- c(
@@ -269,13 +270,20 @@ imd_flags <- HES_index %>%
 # SECTION 5: Assemble final cohort and write CSV
 # =============================================================================
 
+# Assemble the final cohort-level DF by left-joining the HES-derived covariate flags to the NVR cohort.  
 non_elective_cohort <- non_elective_cohort %>%
   rename(STUDY_ID = `Patient:PatientId`) %>%
   left_join(charlson_flags %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(scarf_flags   %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(imd_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
-  left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
-  filter(complete.cases(.))
+  left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID")
+
+# check for missing data in the final cohort DF
+cat("Rows:", nrow(non_elective_cohort), "\n\nMissing data summary:\n")
+print(colSums(is.na(non_elective_cohort)))
+
+# keep only complete cases (ignoring missingness in "PostOp:CompFurtherSurgeryCode")
+non_elective_cohort <- non_elective_cohort %>%  filter(complete.cases(select(., -`PostOp:CompFurtherSurgeryCode`)))
 
 write.csv(non_elective_cohort, NON_ELECTIVE_COHORT_BASELINE_DF_PATH, row.names = FALSE)
 message(sprintf("  Cohort written: %d patients → %s", nrow(non_elective_cohort), NON_ELECTIVE_COHORT_BASELINE_DF_PATH))
