@@ -29,7 +29,7 @@ source("R/Charlson_SCARF_scoring.R")
 
 # Input DF Paths: 
 NVR_DF_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/NVR data for ESORT.xlsx"
-HES_APC_PATH             <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/Cleaned_up_HES_data/HES_APC_2015_to_2023_variables_of_interest_only.qs"
+HES_APC_PATH             <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_APC_2015_to_2023.qs"
 HES_MORT_PATH            <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_CIVREG_MORT.txt"
 AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
 
@@ -60,7 +60,8 @@ NVR_WANTED_COLS <- c(
 HES_APC_WANTED_COLS <- c(
   "STUDY_ID", "ADMIDATE", "EPISTART", "DISDATE", "EPIEND",
   "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", 
-  "OPERTN_4_CONCAT"
+  paste0("OPERTN_", sprintf("%02d", 1:24)),
+  paste0("OPDATE_", sprintf("%02d", 1:24))
 )
 
 NVR_ID_COL        <- "Patient:PatientId"
