@@ -22,6 +22,7 @@ source("R/outcomes.R")
 source("R/lasso.R")
 source("R/cohort.R")
 source("R/Charlson_SCARF_scoring.R")
+source("R/vascular_outcomes.R")
 
 # =============================================================================
 # PATHS
@@ -42,10 +43,12 @@ KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/
 KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant_opcs.dta"
 
 # Output paths: 
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets_240426/non_elective_bypass_study_participants_with_confounders.csv"
+NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets_240426/non_elective_bypass_study_participants_with_outcomes.csv"
 
 # =============================================================================
 # Parameters to define 
+# =============================================================================
 
 NVR_WANTED_COLS <- c(
   "ProcedureType", "Patient:PatientId", "Patient:AgeAtSurgery",
@@ -337,7 +340,7 @@ mortality_clean <- read.table(HES_MORT_PATH, header = TRUE, sep = "|") %>%
   select(study_id, death_date)
 
 # =============================================================================
-# SECTION 8: TTE outcomes
+# SECTION 8: TTE outcomes - Primary 
 # =============================================================================
 
 non_elective_outcomes <- calculate_outcomes(
@@ -362,6 +365,59 @@ non_elective_outcomes <- calculate_outcomes(
   time_horizons                   = c(90, 180, 365),
   include_pre_intervention        = FALSE,
   mortality_id_prefix             = ""
+)
+
+# =============================================================================
+# SECTION 8: TTE outcomes - Secondary  
+# =============================================================================
+
+# set OPSC revas code prefixes based on https://doi.org/10.1016/j.ejvs.2023.05.003 
+revasc_prefixes   <- c("L161", "L162", "L163", "L168", "L169",  
+"L206", "L216",  "L501", "L502", "L503", "L504", "L505", "L506",  
+"L511", "L512", "L513", "L514", "L515", "L516", "L518", "L519",  
+"L521", "L522", "L528", "L529",  "L581", "L582", "L583", "L584", "L585", "L586", "L587", "L588", "L589", 
+"L591", "L592", "L593", "L594", "L595", "L596", "L597", "L598", "L599", 
+"L601", "L602", "L603", "L604", "L608", "L609",  
+"L651", "L652", "L653", "L658", "L659", 
+"L681", "L682", "L683", "L684", "L688", "L689",
+"L541", "L544", "L548", "L549",  
+"L631", "L635", "L638", "L639", 
+"L662", "L665", "L667", "L668", "L669", 
+"L711", "L718", "L719")
+
+amp_prefixes <- "X09"
+
+censoring_date    <- as.Date("2024-03-31")  # study end date
+
+# --- Pre-filter HES to post-index episodes only ----------------------------
+HES_post_index_df_for_secondary_outcomes <- subset_HES_to_NVR_cohort(HES_cohort_all, non_elective_cohort, "STUDY_ID", HES_ID_CLEAN_COL) %>% 
+                          select(-c("EPISTART", "EPIEND", "DISDATE", "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", "OPERTN_4_CONCAT")) %>% 
+                          filter(ADMIDATE >  index_admidate) %>%  # keep only index and post-index admissions 
+                          rename(study_id = STUDY_ID_clean) # rename for consistency with limb event flagging function
+
+# --- Extract index limb laterality from NVR --------------------------------
+nvr_index_laterality <- non_elective_cohort %>%
+                        select(study_id = STUDY_ID, index_side = `Indications:IndicationSideCode`) %>%
+                        distinct()
+
+# --- Flag earliest same-side limb events in HES ----------------------------
+limb_events <- flag_limb_events(
+  hes_post_index  = HES_post_index_df_for_secondary_outcomes,
+  amp_prefixes    = amp_prefixes,
+  revasc_prefixes = revasc_prefixes,
+  index_side_df   = nvr_index_laterality,
+  use_laterality  = TRUE
+  # opertn_cols / opdate_cols: package defaults (OPERTN_01..24) apply
+)
+
+# --- Compute ILR, ILMA, AFS outcomes ---------------------------------------
+limb_outcomes <- compute_limb_outcomes(
+  cohort         = non_elective_cohort %>% rename(study_id = STUDY_ID),
+  limb_events    = limb_events,
+  mortality      = mortality_clean,
+  start_date_col = "NvrEpisode:ProcedureStartDate",
+  censoring_date = censoring_date,
+  time_horizons  = c(90L, 180L, 365L)
 )
 
 non_elective_outcomes <- non_elective_outcomes %>%
