@@ -142,7 +142,7 @@
 #' Searches pre-filtered post-index HES FCEs for amputation and
 #' revascularisation events using OPCS-4 code prefix matching. When
 #' `use_laterality = TRUE`, only same-side events (matched against
-#' `index_side`) are retained; when `FALSE`, the earliest event regardless
+#' `index_side_df`) are retained; when `FALSE`, the earliest event regardless
 #' of laterality is returned.
 #'
 #' Returns one row per patient with the earliest qualifying event date for
@@ -161,7 +161,7 @@
 #'   when `use_laterality = TRUE`; ignored (and may be `NULL`) when
 #'   `use_laterality = FALSE`.
 #' @param use_laterality Logical. If `TRUE` (default), restricts to same-side
-#'   events using `index_side`. If `FALSE`, returns the earliest matching
+#'   events using `index_side_df`. If `FALSE`, returns the earliest matching
 #'   event regardless of laterality — use for procedure types where laterality
 #'   is not coded.
 #' @param opertn_cols Character vector of OPCS-4 operation code column names.
@@ -187,10 +187,10 @@
 #'
 #' @examples
 #' \dontrun{
-#'   amp_prefixes   <- "X09"
+#'   amp_prefixes    <- "X09"
 #'   revasc_prefixes <- c("L161", "L501", "L511")
 #'
-#'   index_side <- extract_index_limb_events_from_nvr(nvr_cohort)
+#'   index_side_df <- extract_index_limb_events_from_nvr(nvr_cohort)
 #'
 #'   hes_post <- hes_all %>% filter(hes_admission_date > index_procedure_date)
 #'
@@ -198,7 +198,7 @@
 #'     hes_post_index  = hes_post,
 #'     amp_prefixes    = amp_prefixes,
 #'     revasc_prefixes = revasc_prefixes,
-#'     index_side      = index_side
+#'     index_side_df   = index_side_df
 #'   )
 #' }
 #'
@@ -211,7 +211,7 @@ flag_limb_events <- function(
   hes_post_index,
   amp_prefixes,
   revasc_prefixes,
-  index_side        = NULL,
+  index_side_df     = NULL,
   use_laterality    = TRUE,
   opertn_cols       = paste0("OPERTN_", sprintf("%02d", 1:24)),
   opdate_cols       = paste0("OPDATE_", sprintf("%02d", 1:24)),
@@ -234,15 +234,15 @@ flag_limb_events <- function(
               "hes_post_index")
 
   if (use_laterality) {
-    if (is.null(index_side)) {
+    if (is.null(index_side_df)) {
       stop(
-        "`index_side` must be supplied when `use_laterality = TRUE`.\n",
+        "`index_side_df` must be supplied when `use_laterality = TRUE`.\n",
         "Pass `NULL` and set `use_laterality = FALSE` for procedures ",
         "where laterality is not coded.",
         call. = FALSE
       )
     }
-    .check_cols(index_side, c("study_id", "index_side"), "index_side")
+    .check_cols(index_side_df, c("study_id", "index_side"), "index_side_df")
   }
 
   sentinel_dates <- as.Date(c("1800-01-01", "1801-01-01"))
@@ -290,7 +290,7 @@ flag_limb_events <- function(
 
   if (use_laterality) {
     events <- events %>%
-      dplyr::left_join(index_side, by = "study_id") %>%
+      dplyr::left_join(index_side_df, by = "study_id") %>%
       dplyr::rowwise() %>%
       dplyr::mutate(
         amp_same_side    = .match_opcs_event_laterality(index_side, amp_lat),
@@ -400,9 +400,9 @@ compute_limb_outcomes <- function(
   )
   time_horizons <- as.integer(time_horizons)
 
-  .check_cols(cohort,      c("study_id", start_date_col),          "cohort")
+  .check_cols(cohort,      c("study_id", start_date_col),            "cohort")
   .check_cols(limb_events, c("study_id", "amp_date", "revasc_date"), "limb_events")
-  .check_cols(mortality,   c("study_id", "death_date"),             "mortality")
+  .check_cols(mortality,   c("study_id", "death_date"),              "mortality")
 
   # ---- Assemble base table ---------------------------------------------------
 
