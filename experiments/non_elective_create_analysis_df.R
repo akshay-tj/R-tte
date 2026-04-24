@@ -54,12 +54,13 @@ NVR_WANTED_COLS <- c(
   "RiskScores:SmokingStatus", "Indications:AmpIndicationCode",
   "Indications:PadFontaineCode", "RiskScores:ASA", "RiskScores:Medication",
   "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode", 
-  "PostOp:CompFurtherSurgeryCode"
+  "PostOp:CompFurtherSurgeryCode", "Indications:IndicationSideCode"
 )
 
 HES_APC_WANTED_COLS <- c(
   "STUDY_ID", "ADMIDATE", "EPISTART", "DISDATE", "EPIEND",
   "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", 
+  "OPERTN_4_CONCAT",
   paste0("OPERTN_", sprintf("%02d", 1:24)),
   paste0("OPDATE_", sprintf("%02d", 1:24))
 )
@@ -283,8 +284,8 @@ non_elective_cohort <- non_elective_cohort %>%
 cat("Rows:", nrow(non_elective_cohort), "\n\nMissing data summary:\n")
 print(colSums(is.na(non_elective_cohort)))
 
-# keep only complete cases (ignoring missingness in "PostOp:CompFurtherSurgeryCode")
-non_elective_cohort <- non_elective_cohort %>%  filter(complete.cases(select(., -`PostOp:CompFurtherSurgeryCode`)))
+# keep only complete cases (ignoring missingness in "PostOp:CompFurtherSurgeryCode", "Indications:IndicationSideCode" since these are not confounders)
+non_elective_cohort <- non_elective_cohort %>%  filter(complete.cases(select(., -`PostOp:CompFurtherSurgeryCode`, -`Indications:IndicationSideCode`)))
 
 write.csv(non_elective_cohort, NON_ELECTIVE_COHORT_BASELINE_DF_PATH, row.names = FALSE)
 message(sprintf("  Cohort written: %d patients → %s", nrow(non_elective_cohort), NON_ELECTIVE_COHORT_BASELINE_DF_PATH))
