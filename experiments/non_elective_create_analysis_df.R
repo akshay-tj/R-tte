@@ -368,7 +368,7 @@ non_elective_outcomes <- calculate_outcomes(
 )
 
 # =============================================================================
-# SECTION 8: TTE outcomes - Secondary  
+# SECTION 9: TTE outcomes - Secondary  
 # =============================================================================
 
 # set OPSC revas code prefixes based on https://doi.org/10.1016/j.ejvs.2023.05.003 
@@ -421,6 +421,7 @@ limb_outcomes <- compute_limb_outcomes(
 )
 
 non_elective_outcomes <- non_elective_outcomes %>%
+  left_join(limb_outcomes, by = "study_id") %>%
   left_join(
     non_elective_cohort %>%
       select(STUDY_ID, early_surgery) %>%
@@ -429,5 +430,7 @@ non_elective_outcomes <- non_elective_outcomes %>%
   )
 
 write.csv(non_elective_outcomes,
-          "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_080426.csv",
+          NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH,
           row.names = FALSE)
+
+message(sprintf("Outcomes written: %d patients → %s", nrow(non_elective_outcomes), NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH))
