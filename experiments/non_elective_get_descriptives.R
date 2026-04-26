@@ -1,6 +1,21 @@
 source("R/descriptives.R")
 
 # =============================================================================
+# Descriptive tables — Non-elective LL bypass cohort
+#
+# Assumes the following objects are already in the environment,
+# produced by non_elective_create_analysis_df.R:
+#   - non_elective_cohort   : cohort tibble with baseline characteristics
+#   - non_elective_outcomes : tibble with all outcome columns
+#
+# Produces:
+#   - Table 1 : baseline characteristics stratified by early_surgery
+#   - Table 2 : unadjusted outcomes at 90, 180, and 365 days
+#   - afs_crude_rates  : AFS incidence rates per 1000 person-years by arm
+#   - afs_rate_diff    : AFS rate difference (early minus late) with 95% CI
+# =============================================================================
+
+# =============================================================================
 # Table 1 — baseline characteristics
 # =============================================================================
 

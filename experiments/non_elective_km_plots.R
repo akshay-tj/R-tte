@@ -1,3 +1,19 @@
+# =============================================================================
+# KM curves — Mortality and Amputation-free survival (AFS)
+#
+# Assumes the following objects are already in the environment,
+# produced by non_elective_create_analysis_df.R:
+#   - non_elective_cohort   : cohort tibble with columns STUDY_ID,
+#                             NvrEpisode.ProcedureStartDate, early_surgery
+#   - mortality_clean       : tibble with columns study_id, death_date
+#   - non_elective_outcomes : tibble with columns study_id, afs_days,
+#                             afs_event (joined from compute_limb_outcomes())
+#
+# Outputs (saved to disk):
+#   - mortality_km_plot_path
+#   - afs_km_plot_path
+# =============================================================================
+
 # load packages
 library(survival)
 library(ggsurvfit)
