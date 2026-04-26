@@ -78,19 +78,19 @@ descriptive_table(
 cont_90 <- c("daoh_bypass_surg_90d", "total_los_no_90d",
              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_90d",
              "bypass_surg_los_no")
-cat_90  <- c("readmit_post_bypass_surg_90d", "died_post_bypass_surg_90d")
+cat_90  <- c("readmit_post_bypass_surg_90d", "died_post_bypass_surg_90d", "ilr_90d", "ilma_90d")
 outcomes_90_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
                                     cont_vars = cont_90, cat_vars = cat_90, ttest = TRUE,
                                     label = "90 days")
 
 cont_180 <- c("daoh_bypass_surg_180d", "total_los_no_180d", "post_bypass_surg_los_no_180d")
-cat_180  <- c("readmit_post_bypass_surg_180d", "died_post_bypass_surg_180d")
+cat_180  <- c("readmit_post_bypass_surg_180d", "died_post_bypass_surg_180d", "ilr_180d", "ilma_180d")
 outcomes_180_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
                                       cont_vars = cont_180, cat_vars = cat_180, ttest = TRUE,
                                       label = "180 days")
 
 cont_365 <- c("daoh_bypass_surg_365d", "total_los_no_365d", "post_bypass_surg_los_no_365d")
-cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d")
+cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d", "ilr_365d", "ilma_365d")
 outcomes_365_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
                                      cont_vars = cont_365, cat_vars = cat_365, ttest = TRUE,
                                      label = "365 days")
