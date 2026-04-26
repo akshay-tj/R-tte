@@ -4,13 +4,10 @@
 # non-elective bypass cohort. Exports one analysis-ready DTA + globals CSV
 # per timepoint for Stata modelling.
 #
-# NOTE: instrumental_variable is currently loaded from an external CSV.
-#       This will be computed within the pipeline in a future update.
-#
-# Inputs:
+# Assumes the following objects are already in the environment:
 #   - non_elective_outcomes (wide tibble from non_elective_create_analysis_df.R)
-#   - non_elective_cohort   (baseline covariates)
-#   - temp IV file          (temporary — see NOTE above)
+#   - non_elective_cohort   (baseline confounders)
+#   - iv_df
 #
 # Outputs (one per timepoint):
 #   - non_elective_{H}d.dta          — analysis-ready dataset, union of all
@@ -27,10 +24,7 @@ source("R/lasso.R")
 # PATHS
 # =============================================================================
 
-IV_PATH    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_IV_080426.csv"
-non_elective_outcomes_path <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_080426.csv"
-non_elective_cohort_path  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
-OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs_sensitivity/"
+OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/"
 
 # =============================================================================
 # PARAMETERS
