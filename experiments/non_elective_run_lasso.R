@@ -30,7 +30,7 @@ source("R/lasso.R")
 IV_PATH    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_IV_080426.csv"
 non_elective_outcomes_path <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_outcomes_080426.csv"
 non_elective_cohort_path  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
-OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs/"
+OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs_sensitivity/"
 
 # =============================================================================
 # PARAMETERS
@@ -40,20 +40,25 @@ TIME_HORIZONS <- c(90, 180, 365)
 
 # Outcome column names per timepoint — {H} replaced at runtime
 OUTCOMES <- list(
-  daoh        = "daoh_bypass_surg_{H}d",
-  total_los   = "total_los_no_{H}d",
-  readmission = "readmit_post_bypass_surg_{H}d",
-  mortality   = "died_post_bypass_surg_{H}d"
+#  daoh        = "daoh_bypass_surg_{H}d",
+  daoh_myles  = "daoh_myles_bypass_surg_{H}d" 
+#  total_los   = "total_los_no_{H}d",
+#  readmission = "readmit_post_bypass_surg_{H}d",
+#  mortality   = "died_post_bypass_surg_{H}d"
 )
 
 # glmnet family per outcome
 OUTCOME_FAMILIES <- c(
   daoh        = "gaussian",
+  daoh_myles  = "gaussian",
   total_los   = "gaussian",
   readmission = "binomial",
   mortality   = "binomial"
 )
 
+# Two 2SRI models are run (m1/m2 — see globals CSV building block below):
+#   model1: homogeneous effects — Z only in Stage 1, no Z*X or D*X terms
+#   model2: heterogeneous effects — Z + Z*X in Stage 1, D*X in Stage 2
 # Prespecified subgroups — always forced in, unpenalised, D*X and Z*X forced
 not_penalized <- c("ageatsurgery", "gender_F", "fontaine_4", "comorbidity_1", "krt_yn")
 
@@ -206,15 +211,8 @@ for (h in TIME_HORIZONS) {
   }
 
   # Pre-generate Z*X interaction columns for each version:
-  #   z_x_stage2_{var} — Z x D*X base vars (for z_x_stage2_treatment version)
-  #   z_x_stage1_{var} — Z x Z*X base vars (for z_x_stage1_instrument version)
-  #   z_x_full_{var}   — Z x all main effects (for z_x_stage1_full version)
-
-  # z_x_stage2_: Z x vars selected for Stage 2 (Mlist / D*X base vars)
-  #   used in z_x_stage2_treatment version of Stage 1
-  # z_x_stage1_: Z x vars selected for Stage 1 (Zlist / Z*X base vars, LASSO Part 2b)
-  #   used in z_x_stage1_instrument version of Stage 1
-  # z_x_full_:   Z x all main effects — used in z_x_stage1_full version
+  
+  # Z x Z*X base vars for Stage 1 (model2 only)
   z_x_stage1_col_names <- paste0("z_x_stage1_", zx_base_vars)
 
   for (i in seq_along(zx_base_vars)) {
@@ -256,6 +254,13 @@ for (h in TIME_HORIZONS) {
       gsub("_d$",  "", res$retained_dx_outcome),
       gsub("_iv$", "", res$retained_zx_exposure)
     ))
+
+    # Model definitions (version argument passed to Stata subgroupboot):
+    #   model1: homogeneous treatment effects — Z only in Stage 1, no Z*X;
+    #           same Xlist in both stages
+    #   model2: heterogeneous treatment effects — Z + Z*X in Stage 1,
+    #           D*X added to Stage 2 to allow effect modification
+    # Both models are exported to globals CSV and run in Stata.
 
     # Model 1: homogeneous — no D*X in Stage 2, no Z*X in Stage 1
     xlist_s2_m1 <- unique(c(
