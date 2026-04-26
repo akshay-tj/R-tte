@@ -35,19 +35,25 @@ TIME_HORIZONS <- c(90, 180, 365)
 # Outcome column names per timepoint — {H} replaced at runtime
 OUTCOMES <- list(
 #  daoh        = "daoh_bypass_surg_{H}d",
-  daoh_myles  = "daoh_myles_bypass_surg_{H}d" 
+  daoh_myles              = "daoh_myles_bypass_surg_{H}d",
 #  total_los   = "total_los_no_{H}d",
 #  readmission = "readmit_post_bypass_surg_{H}d",
 #  mortality   = "died_post_bypass_surg_{H}d"
+  post_bypass_surg_los_no = "post_bypass_surg_los_no_{H}d",
+  ilr                     = "ilr_{H}d",
+  ilma                    = "ilma_{H}d"
 )
 
 # glmnet family per outcome
 OUTCOME_FAMILIES <- c(
-  daoh        = "gaussian",
-  daoh_myles  = "gaussian",
-  total_los   = "gaussian",
-  readmission = "binomial",
-  mortality   = "binomial"
+  daoh                    = "gaussian",
+  daoh_myles              = "gaussian",
+  total_los               = "gaussian",
+  readmission             = "binomial",
+  mortality               = "binomial",
+  post_bypass_surg_los_no = "gaussian",
+  ilr                     = "binomial",
+  ilma                    = "binomial"
 )
 
 # Two 2SRI models are run (m1/m2 — see globals CSV building block below):
