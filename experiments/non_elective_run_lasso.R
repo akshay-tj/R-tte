@@ -24,7 +24,7 @@ source("R/lasso.R")
 # PATHS
 # =============================================================================
 
-OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/"
+OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
 
 # =============================================================================
 # PARAMETERS
@@ -34,11 +34,11 @@ TIME_HORIZONS <- c(90, 180, 365)
 
 # Outcome column names per timepoint — {H} replaced at runtime
 OUTCOMES <- list(
-#  daoh        = "daoh_bypass_surg_{H}d",
+  daoh        = "daoh_bypass_surg_{H}d",
   daoh_myles              = "daoh_myles_bypass_surg_{H}d",
-#  total_los   = "total_los_no_{H}d",
-#  readmission = "readmit_post_bypass_surg_{H}d",
-#  mortality   = "died_post_bypass_surg_{H}d"
+  total_los   = "total_los_no_{H}d",
+  readmission = "readmit_post_bypass_surg_{H}d",
+  mortality   = "died_post_bypass_surg_{H}d",
   post_bypass_surg_los_no = "post_bypass_surg_los_no_{H}d",
   ilr                     = "ilr_{H}d",
   ilma                    = "ilma_{H}d"
@@ -84,33 +84,25 @@ penalized_vars <- c(
 # =============================================================================
 
 # NOTE: instrumental_variable loaded externally — will move into pipeline later
-iv_data <- read.csv(IV_PATH) %>%
-  select(STUDY_ID, instrumental_variable)
-
-non_elective_outcomes <- read.csv(non_elective_outcomes_path)
-
-non_elective_cohort <- read.csv(non_elective_cohort_path)
-
 base_df <- non_elective_outcomes %>%
   left_join(
     non_elective_cohort %>%
-      mutate(STUDY_ID = as.integer(STUDY_ID)) %>%
-      select(-early_surgery),
+        select(-early_surgery),
     by = c("study_id" = "STUDY_ID")
   ) %>%
-  left_join(iv_data, by = c("study_id" = "STUDY_ID")) %>%
+  left_join(iv_df, by = c("study_id" = "STUDY_ID")) %>%
   rename(
-    ageatsurgery    = `Patient.AgeAtSurgery`,
+    ageatsurgery    = `Patient:AgeAtSurgery`,
     nvrhospitalname = NvrHospitalName
   ) %>%
   mutate(
     age_sq           = ageatsurgery^2,  # NOTE: penalised per protocol, not forced
-    gender_F         = if_else(`Patient.GenderCode` == 2, 1L, 0L),
-    smoking_ex       = if_else(`RiskScores.SmokingStatus` == 2, 1L, 0L),
-    smoking_current  = if_else(`RiskScores.SmokingStatus` == 3, 1L, 0L),
-    asa_2            = if_else(`RiskScores.ASA` == 2, 1L, 0L),
-    asa_3            = if_else(`RiskScores.ASA` == 3, 1L, 0L),
-    asa_4            = if_else(`RiskScores.ASA` == 4, 1L, 0L),
+    gender_F         = if_else(`Patient:GenderCode` == 2, 1L, 0L),
+    smoking_ex       = if_else(`RiskScores:SmokingStatus` == 2, 1L, 0L),
+    smoking_current  = if_else(`RiskScores:SmokingStatus` == 3, 1L, 0L),
+    asa_2            = if_else(`RiskScores:ASA` == 2, 1L, 0L),
+    asa_3            = if_else(`RiskScores:ASA` == 3, 1L, 0L),
+    asa_4            = if_else(`RiskScores:ASA` == 4, 1L, 0L),
     scarf_mild       = if_else(scarf_cat == "Mild Frailty (2/3)",     1L, 0L),
     scarf_moderate   = if_else(scarf_cat == "Moderate Frailty (4/5)", 1L, 0L),
     scarf_severe     = if_else(scarf_cat == "Severe Frailty (6+)",    1L, 0L),
@@ -120,8 +112,8 @@ base_df <- non_elective_outcomes %>%
     imd_q3           = if_else(IMD_quintile == "Q3",                  1L, 0L),
     imd_q4           = if_else(IMD_quintile == "Q4",                  1L, 0L),
     imd_q5           = if_else(IMD_quintile == "Q5 (most deprived)",  1L, 0L),
-    fontaine_4       = if_else(`Indications.PadFontaineCode` == 4,    1L, 0L),
-    amp_tissueloss   = if_else(`Indications.AmpIndicationCode` == 4,  1L, 0L),
+    fontaine_4       = if_else(`Indications:PadFontaineCode` == 4,    1L, 0L),
+    amp_tissueloss   = if_else(`Indications:AmpIndicationCode` == 4,  1L, 0L),
     surgyr_2016      = if_else(year_of_surgery == 2016, 1L, 0L),
     surgyr_2017      = if_else(year_of_surgery == 2017, 1L, 0L),
     surgyr_2018      = if_else(year_of_surgery == 2018, 1L, 0L),
