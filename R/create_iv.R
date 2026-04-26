@@ -49,9 +49,9 @@ calc_ttes <- function(nvr_df,
   df_filtered <- nvr_df %>%
     dplyr::filter(
       NvrHospitalName          == hospital_name,
-      Patient.PatientId        != patient_id, # Exclude the given patient_id
-      NvrEpisode.AdmissionDate <  time_zero_date,
-      NvrEpisode.AdmissionDate >= time_zero_date - lookback_days
+      `Patient:PatientId`        != patient_id, # Exclude the given patient_id
+      `NvrEpisode:AdmissionDate` <  time_zero_date,
+      `NvrEpisode:AdmissionDate` >= time_zero_date - lookback_days
     )
   # Step 2: Get the sum of urgent_surgery for the ids obtained, divided by the number of IDs
   
