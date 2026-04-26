@@ -116,6 +116,8 @@ outcomes_365_days <- descriptive_table(non_elective_outcomes, strata_col = "earl
                                      cont_vars = cont_365, cat_vars = cat_365, ttest = TRUE,
                                      label = "365 days")
 
+## AFS crude rates and rate differences at 90, 180, and 365 days
+
 afs_horizons <- c(90, 180, 365)
 
 afs_crude_rates <- purrr::map_dfr(afs_horizons, function(h) {
@@ -126,32 +128,34 @@ afs_crude_rates <- purrr::map_dfr(afs_horizons, function(h) {
     ) %>%
     group_by(early_surgery) %>%
     summarise(
-      horizon              = h,
-      n_total              = n(),
-      n_events             = sum(afs_event_h, na.rm = TRUE),
-      person_days          = sum(afs_days_h,  na.rm = TRUE),
-      crude_rate_1000pd    = round(n_events / person_days * 1000, 2),
-      .groups              = "drop"
+      horizon           = h,
+      n_total           = n(),
+      n_events          = sum(afs_event_h, na.rm = TRUE),
+      person_years      = sum(afs_days_h,  na.rm = TRUE) / 365.25,
+      crude_rate_1000py = round(n_events / person_years * 1000, 2),
+      .groups           = "drop"
     )
 }) %>%
   dplyr::relocate(horizon, early_surgery)
 
 afs_rate_diff <- afs_crude_rates %>%
-  dplyr::select(horizon, early_surgery, n_events, person_days) %>%
+  dplyr::select(horizon, early_surgery, n_events, person_years) %>%
   tidyr::pivot_wider(
     names_from  = early_surgery,
-    values_from = c(n_events, person_days),
+    values_from = c(n_events, person_years),
     names_sep   = "_"
   ) %>%
   mutate(
-    rate_0 = n_events_0 / person_days_0 * 1000,
-    rate_1 = n_events_1 / person_days_1 * 1000,
+    rate_0 = n_events_0 / person_years_0 * 1000,
+    rate_1 = n_events_1 / person_years_1 * 1000,
     rd     = rate_1 - rate_0,
-    var_0  = n_events_0 / person_days_0^2 * 1000^2,
-    var_1  = n_events_1 / person_days_1^2 * 1000^2,
+    var_0  = n_events_0 / person_years_0^2 * 1000^2,
+    var_1  = n_events_1 / person_years_1^2 * 1000^2,
     se_rd  = sqrt(var_0 + var_1),
     ci_lo  = rd - 1.96 * se_rd,
     ci_hi  = rd + 1.96 * se_rd
   ) %>%
   dplyr::select(horizon, rate_0, rate_1, rd, ci_lo, ci_hi) %>%
   mutate(across(c(rate_0, rate_1, rd, ci_lo, ci_hi), ~ round(.x, 2)))
+
+print(afs_rate_diff)
