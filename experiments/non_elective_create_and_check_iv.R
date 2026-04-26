@@ -1,65 +1,60 @@
-#### new iv pipeline df 
+# =============================================================================
+# create_and_check_iv.R
+#
+# Purpose: Build the tendency-to-expedite-surgery (TTES) instrumental variable
+#          for the non-elective bypass cohort, then produce IV diagnostic plots
+#          (covariate balance, IV stability across centres).
+#
+# Assumes in environment: nvr_df, non_elective_cohort,
+#                         INCLUSION_CRITERIA, HIGH_VOL_HOSPS
+#
+# Outputs:
+#   - non_elective_IV.csv
+#   - covariate_balance.png
+#   - iv_stability_overall.png
+#   - iv_stability_facet.png
+# =============================================================================
+
 library(tidyverse)
 
 source("R/create_iv.R")
 source("R/utils.R")
 source("R/cohort.R")
-# =============================================================================
-# Parameters to define 
-
-NVR_WANTED_COLS <- c(
-  "ProcedureType", "Patient:PatientId", "Patient:AgeAtSurgery",
-  "Patient:GenderCode", "NvrEpisode:AdmissionDate",
-  "NvrEpisode:ProcedureStartDate", "NvrHospitalName", "LSOA",
-  "RiskScores:SmokingStatus", "Indications:AmpIndicationCode",
-  "Indications:PadFontaineCode", "RiskScores:ASA", "RiskScores:Medication",
-  "RiskScores:Comorbidities", "NvrEpisode:AdmissionModeCode"
-)
-
-NVR_ID_COL        <- "Patient:PatientId"
-NVR_ADMISSION_COL <- "NvrEpisode:AdmissionDate"
-AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
-NVR_DF_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/NVR data for ESORT.xlsx"
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_bypass_study_participants_with_covariates_080426.csv"
+source("R/plots.R")
 
 # =============================================================================
-# SECTION 2: NVR cohort — inclusion, linkage, deduplication
+# Parameters
 # =============================================================================
 
-HIGH_VOL_HOSPS <- read_csv(AVG_BYPASS_SURGERIES_PATH) %>%
-  filter(Avg_2015_2023 >= 20) %>%
-  pull(NvrHospitalName)
+LOOKBACK_DAYS    <- 365L
+STUDY_START_DATE <- as.Date("2015-01-01")
+IV_OUTPUT_PATH   <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_ttes.csv"
+RESULTS_DIR      <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/"
 
-INCLUSION_CRITERIA <- list(
-  procedure_type       = quo(ProcedureType %in% c("Lower-limb Bypass",
-                                                   "Lower-limb Bypass (Linked)")),
-  clti_only            = quo(`Indications:AmpIndicationCode` %in% c(2, 4)),
-  fontaine_score       = quo(`Indications:PadFontaineCode` %in% c(3, 4)),
-  asa_score            = quo(`RiskScores:ASA` %in% 1:4),
-  english_lsoa         = quo(grepl("^E", LSOA)),
-  high_volume_hospital = quo(NvrHospitalName %in% HIGH_VOL_HOSPS)
-)
+# =============================================================================
+# SECTION 1: Build lookback cohort (pre-study peers for TTES denominator)
+# =============================================================================
 
-nvr_df <- read_xlsx_df(NVR_DF_PATH, NVR_WANTED_COLS)
-
-nvr_lookback_only <- do.call(
+# Patients admitted before study start — provide historical peer pool for
+# study patients whose 1-year lookback window predates STUDY_START_DATE.
+# These rows are context only (include_flag = 0); they are never analysed.
+nvr_lookback <- do.call(
   perform_inclusion,
-  c(list(df    = nvr_df %>%
-           filter(`NvrEpisode:AdmissionDate` < "2015-01-01") %>%
-           distinct(),
-         label = "NVR_include"),
-    INCLUSION_CRITERIA)
+  c(
+    list(
+      df    = nvr_df %>%
+        filter(`NvrEpisode:AdmissionDate` < STUDY_START_DATE) %>%
+        distinct(),
+      label = "NVR_include"
+    ),
+    INCLUSION_CRITERIA
+  )
 )
 
-check_duplicates(nvr_lookback_only, NVR_ID_COL)
+check_duplicates(nvr_lookback, "Patient:PatientId")
+nvr_lookback <- handle_duplicates(nvr_lookback, id_col = "Patient:PatientId")
 
-nvr_deduped <- handle_duplicates(nvr_lookback_only, id_col = NVR_ID_COL)
-
-# =============================================================================
-# Non-elective cohort — arm assignment and derived variables
-# =============================================================================
-
-nvr_lookback_only_deduped <- nvr_deduped %>%
+nvr_lookback <- nvr_lookback %>%
   filter(`NvrEpisode:AdmissionModeCode` == 2) %>%
   mutate(
     daystosurgery = as.numeric(
@@ -67,23 +62,37 @@ nvr_lookback_only_deduped <- nvr_deduped %>%
       as.Date(`NvrEpisode:AdmissionDate`)
     )
   ) %>%
-  filter(daystosurgery > 0 & daystosurgery <= 21) %>%
-  mutate(
-    early_surgery = if_else(daystosurgery <= 5, 1L, 0L))
-
-nvr_lookback_only_deduped <- nvr_lookback_only_deduped %>% 
-  rename(NvrEpisode.AdmissionDate = `NvrEpisode:AdmissionDate`, 
-         Patient.PatientId = `Patient:PatientId`) %>% 
-  select(early_surgery, Patient.PatientId, NvrEpisode.AdmissionDate, NvrHospitalName) %>% 
+  filter(daystosurgery > 0, daystosurgery <= 21) %>%
+  mutate(early_surgery = if_else(daystosurgery <= 5, 1L, 0L), 
+         `Patient:PatientId`  = as.character(`Patient:PatientId`)) %>%
+  select(
+    early_surgery,
+    `Patient:PatientId`,
+    `NvrEpisode:AdmissionDate`,
+    NvrHospitalName
+  ) %>%
   mutate(include_flag = 0L)
 
-non_elective_cohort_baseline_df <- read_csv(NON_ELECTIVE_COHORT_BASELINE_DF_PATH) %>% 
-                                   select(STUDY_ID, early_surgery, `NvrEpisode:AdmissionDate`, NvrHospitalName) %>% 
-                                      mutate(include_flag = 1L) %>% 
-                                      rename(NvrEpisode.AdmissionDate = `NvrEpisode:AdmissionDate`, 
-                                             Patient.PatientId = STUDY_ID)
+# =============================================================================
+# SECTION 2: Prepare study cohort for combining with lookback cohort
+# =============================================================================
 
-combined_df <- bind_rows(nvr_lookback_only_deduped, non_elective_cohort_baseline_df)
+study_cohort_slim <- non_elective_cohort %>%
+  select(STUDY_ID, early_surgery, `NvrEpisode:AdmissionDate`, NvrHospitalName) %>%
+  mutate(
+    include_flag = 1L,
+    STUDY_ID     = as.character(STUDY_ID)
+  ) %>%
+  rename(`Patient:PatientId` = STUDY_ID)
+
+# =============================================================================
+# SECTION 3: Calculate TTES instrumental variable
+# =============================================================================
+
+combined_df <- bind_rows(nvr_lookback, study_cohort_slim)
+
+n_study <- sum(combined_df$include_flag == 1)
+message(sprintf("Calculating TTES for %d study patients...", n_study))
 
 combined_df <- combined_df %>%
   rowwise() %>%
@@ -92,28 +101,132 @@ combined_df <- combined_df %>%
       include_flag == 1,
       calc_ttes(
         combined_df,
-        Patient.PatientId,
+        `Patient:PatientId`,
         NvrHospitalName,
-        NvrEpisode.AdmissionDate,
-        lookback_days = 365L
+        `NvrEpisode:AdmissionDate`,
+        lookback_days = LOOKBACK_DAYS
       ),
       NA_real_
     )
   ) %>%
   ungroup()
 
-# for missing values fill with median of non missing values
+# Impute missing IV values (patients with no peers in lookback window)
+n_missing <- sum(is.na(combined_df$instrumental_variable) & combined_df$include_flag == 1)
+message(sprintf(
+  "IV missing for %d of %d study patients (%.1f%%) — imputing with median.",
+  n_missing, n_study, 100 * n_missing / n_study
+))
+
 median_iv <- median(combined_df$instrumental_variable, na.rm = TRUE)
-
 combined_df <- combined_df %>%
-  mutate(instrumental_variable = if_else(is.na(instrumental_variable), median_iv, instrumental_variable))
+  mutate(
+    instrumental_variable = if_else(
+      is.na(instrumental_variable),
+      median_iv,
+      instrumental_variable
+    )
+  )
 
-# create a df with study id and instrumental variable 
-iv_df <- combined_df %>% 
+iv_df <- combined_df %>%
   filter(include_flag == 1) %>%
-  select(Patient.PatientId, instrumental_variable) %>% 
-  # STUDY_ID should be integer format to match with the main analysis df
-  rename(STUDY_ID = Patient.PatientId) %>%
+  select(`Patient:PatientId`, instrumental_variable) %>%
+  rename(STUDY_ID = `Patient:PatientId`) %>%
   mutate(STUDY_ID = as.character(STUDY_ID))
 
-write_csv(iv_df, "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/non_elective_IV_080426.csv")
+write_csv(iv_df, IV_OUTPUT_PATH)
+message(sprintf("IV written to: %s", IV_OUTPUT_PATH))
+
+# =============================================================================
+# SECTION 4: Join IV to study cohort
+# =============================================================================
+
+analysis_df <- non_elective_cohort %>%
+  left_join(iv_df, by = "STUDY_ID") %>%
+  rename(
+    study_id           = STUDY_ID,
+    age_at_surgery     = `Patient:AgeAtSurgery`,
+    gender_code        = `Patient:GenderCode`,
+    nvr_procedure_date = `NvrEpisode:ProcedureStartDate`,
+    nvr_hospital_name  = NvrHospitalName
+  )
+
+# =============================================================================
+# SECTION 5: Covariate balance plot
+# =============================================================================
+
+balance_labels <- c(
+  age_at_surgery                     = "Age",
+  gender_code_1                      = "Male",
+  gender_code_2                      = "Female",
+  rcs_ch_cat_None                    = "Charlson - No comorbidities",
+  rcs_ch_cat_One                     = "Charlson - One comorbidity",
+  rcs_ch_cat_Two                     = "Charlson - Two comorbidities",
+  `rcs_ch_cat_Three +`               = "Charlson - Three or more comorbidities",
+  `scarf_cat_Fit (0/1)`              = "SCARF - Fit",
+  `scarf_cat_Mild Frailty (2/3)`     = "SCARF - Mild Frailty",
+  `scarf_cat_Moderate Frailty (4/5)` = "SCARF - Moderate Frailty",
+  `scarf_cat_Severe Frailty (6+)`    = "SCARF - Severe Frailty"
+)
+
+balance_plot <- plot_covariate_balance(
+  df               = analysis_df,
+  iv_col           = "instrumental_variable",
+  covariates       = c("age_at_surgery", "gender_code", "rcs_ch_cat", "scarf_cat"),
+  categorical_cols = c("gender_code", "rcs_ch_cat", "scarf_cat"),
+  labels           = balance_labels,
+  x_label          = "Tendency to Expedite Surgery (Decile)",
+  y_label          = "Mean baseline covariate rescaled by its SD",
+  title            = "Covariate Balance Plot"
+)
+
+balance_plot
+
+# =============================================================================
+# SECTION 6: IV stability plots
+# =============================================================================
+
+# Restrict to hospitals with > 2 years of data
+stability_df <- analysis_df %>%
+  mutate(year = format(nvr_procedure_date, "%Y")) %>%
+  group_by(nvr_hospital_name) %>%
+  filter(n_distinct(year) > 2) %>%
+  ungroup()
+
+stability_plots <- plot_iv_stability(
+  df              = stability_df,
+  iv_col          = "instrumental_variable",
+  centre_col      = "nvr_hospital_name",
+  date_col        = "nvr_procedure_date",
+  y_label         = "Mean TTE Value",
+  x_label_overall = "Hospitals"
+)
+
+stability_plots$overall
+stability_plots$facet
+
+# =============================================================================
+# SECTION 7: Save plots
+# =============================================================================
+
+ggsave(
+  file.path(RESULTS_DIR, "covariate_balance.png"),
+  plot   = balance_plot,
+  width  = 12,
+  height = 7,
+  dpi    = 300
+)
+ggsave(
+  file.path(RESULTS_DIR, "iv_stability_overall.png"),
+  plot   = stability_plots$overall,
+  width  = 8,
+  height = 5,
+  dpi    = 300
+)
+ggsave(
+  file.path(RESULTS_DIR, "iv_stability_facet.png"),
+  plot   = stability_plots$facet,
+  width  = 14,
+  height = 10,
+  dpi    = 300
+)
