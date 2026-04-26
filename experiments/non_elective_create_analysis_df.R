@@ -1,13 +1,8 @@
 # experiment_run_non_elective.R
 #
 # Builds the non-elective bypass study cohort from raw NVR + HES data,
-# then calculates TTE outcomes (90 / 180 / 365 day) and runs LASSO IV
-# variable selection.
-#
-# KNOWN DEVIATIONS FROM ORIGINAL (intentional):
-#   1. Output format: original produced 3 separate per-horizon CSVs.
-#      This script produces one wide tibble (all horizons combined).
-#   2. Column names follow new package convention (see CLAUDE.md §7).
+# then calculates TTE outcomes (90 / 180 / 365 day) and writes two CSVs: 
+# 1) baseline characteristics + confounders, 2) outcomes.
 
 library(dplyr)
 library(readr)
@@ -43,8 +38,8 @@ KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/
 KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant_opcs.dta"
 
 # Output paths: 
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets_240426/non_elective_bypass_study_participants_with_confounders.csv"
-NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets_240426/non_elective_bypass_study_participants_with_outcomes.csv"
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_confounders.csv"
+NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_outcomes.csv"
 
 # =============================================================================
 # Parameters to define 
@@ -177,7 +172,10 @@ non_elective_cohort <- nvr_linked %>%
   ) %>%
   select(-medication_0, -medication_5, -medication_6,
          -medication_7, -medication_8, -medication_9)
-         
+
+names(non_elective_cohort)
+non_elective_cohort <- non_elective_cohort %>% select(-c(`comorbidity_8 `, `comorbidity_7 `))
+
 # =============================================================================
 # SECTION 4: HES — filter to cohort and compute index-admission covariates
 # =============================================================================
