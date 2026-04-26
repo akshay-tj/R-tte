@@ -253,14 +253,16 @@ end
 * Point estimate: mean of bootstrap replications
 * SE: SD of bootstrap replications
 * CI: normal-based (mean ± 1.96 * SE)
-* NOTE: point estimate is mean of replications, not full-sample estimate.
-*       Full-sample estimate to be added in a future update.
+* NOTE: point estimate is full-sample estimate (not mean of bootstrap reps)
 * --------------------------------------------------------------------
 capture program drop extract_bootstrap_results
 program define extract_bootstrap_results
 syntax, outcome(str) version(str) horizon(int) results_dir(str) dta_path(str)
 
-    use "`results_dir'bootstrap_`outcome'_`version'_`horizon'd.dta", clear
+    * Full-sample point estimates are in e(b), SEs in e(se)
+    * These are set by the bootstrap command from the full-sample run
+    matrix b  = e(b)
+    matrix se = e(se)
 
     tempname fh
     file open `fh' using ///
@@ -268,15 +270,16 @@ syntax, outcome(str) version(str) horizon(int) results_dir(str) dta_path(str)
         write replace
     file write `fh' "outcome,version,horizon,stat,est,se,ci_lo,ci_hi" _n
 
-    foreach var of varlist _all {
-        quietly summarize `var'
-        local est = r(mean)
-        local se  = r(sd)
-        local lo  = `est' - 1.96 * `se'
-        local hi  = `est' + 1.96 * `se'
+    local ncols = colsof(b)
+    forvalues j = 1/`ncols' {
+        local statname : word `j' of `:colnames b'
+        local est = b[1, `j']
+        local se_val = se[1, `j']
+        local lo  = `est' - 1.96 * `se_val'
+        local hi  = `est' + 1.96 * `se_val'
 
         file write `fh' ///
-            "`outcome',`version',`horizon',`var',`est',`se',`lo',`hi'" _n
+            "`outcome',`version',`horizon',`statname',`est',`se_val',`lo',`hi'" _n
     }
 
     file close `fh'
