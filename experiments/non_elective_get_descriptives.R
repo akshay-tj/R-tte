@@ -1,11 +1,8 @@
 source("R/descriptives.R")
 
 # =============================================================================
-# SECTION X: Table 1 — baseline characteristics
+# Table 1 — baseline characteristics
 # =============================================================================
-# NOTE: comorbidity_7 and comorbidity_8 have duplicate columns with trailing
-# spaces ("comorbidity_7 ", "comorbidity_8 ") — data quality issue to fix in
-# non_elective_create_analysis_df.R at ingestion. Using clean versions here.
 
 non_elective_cohort_table1 <- non_elective_cohort %>%
   mutate(
@@ -75,7 +72,7 @@ descriptive_table(
 )
 
 # =============================================================================
-# SECTION X: Descriptive outcomes tables (Table 2)
+# Descriptive outcomes tables (Table 2)
 # =============================================================================
 
 cont_90 <- c("daoh_bypass_surg_90d", "total_los_no_90d",
@@ -86,17 +83,13 @@ outcomes_90_days <- descriptive_table(non_elective_outcomes, strata_col = "early
                                     cont_vars = cont_90, cat_vars = cat_90, ttest = TRUE,
                                     label = "90 days")
 
-cont_180 <- c("daoh_bypass_surg_180d", "total_los_no_180d",
-              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_180d",
-              "bypass_surg_los_no")
+cont_180 <- c("daoh_bypass_surg_180d", "total_los_no_180d", "post_bypass_surg_los_no_180d")
 cat_180  <- c("readmit_post_bypass_surg_180d", "died_post_bypass_surg_180d")
 outcomes_180_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
                                       cont_vars = cont_180, cat_vars = cat_180, ttest = TRUE,
                                       label = "180 days")
 
-cont_365 <- c("daoh_bypass_surg_365d", "total_los_no_365d",
-              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_365d",
-              "bypass_surg_los_no")
+cont_365 <- c("daoh_bypass_surg_365d", "total_los_no_365d", "post_bypass_surg_los_no_365d")
 cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d")
 outcomes_365_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
                                      cont_vars = cont_365, cat_vars = cat_365, ttest = TRUE,
