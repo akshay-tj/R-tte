@@ -75,6 +75,27 @@ descriptive_table(
 # Descriptive outcomes tables (Table 2)
 # =============================================================================
 
+# get stats for incomplete follow-up due to study end date (31st March 2024)
+# 180 day outcomes; participants with procedure after 30th September 2023 will not have full 180 day follow-up
+non_elective_cohort %>%
+  mutate(after_date = `NvrEpisode:ProcedureStartDate` >= as.Date("2023-09-30")) %>%
+  group_by(early_surgery) %>%
+  summarise(
+    n_total = n(),
+    n_after = sum(after_date, na.rm = TRUE),
+    pct = round(n_after / n_total * 100, 2)
+  )
+
+# 365 day outcomes; participants with procedure after 30th March 2023 will not have full 365 day follow-up 
+non_elective_cohort %>%
+  mutate(after_date = `NvrEpisode:ProcedureStartDate` >= as.Date("2023-03-30")) %>%
+  group_by(early_surgery) %>%
+  summarise(
+    n_total = n(),
+    n_after = sum(after_date, na.rm = TRUE),
+    pct = round(n_after / n_total * 100, 2)
+  )
+
 cont_90 <- c("daoh_bypass_surg_90d", "total_los_no_90d",
              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_90d",
              "bypass_surg_los_no")
