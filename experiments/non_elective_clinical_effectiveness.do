@@ -2,8 +2,8 @@
 *
 * Runs 2SRI IV clinical effectiveness analysis for non-elective bypass cohort.
 * Reads LASSO-selected variable lists from globals CSV (produced by R).
-* Runs four Stage 1 versions, bootstrapped, for all outcomes x timepoints.
-* Produces forest plots and IV strength diagnostics.
+* Runs bootstrapped recycled predictions for all outcomes x timepoints.
+* Produces IV strength diagnostics.
 *
 * D*X and Z*X interaction columns are pre-generated in R and included
 * directly in the appropriate Xlist — no factor variable syntax in Stata.
@@ -19,7 +19,7 @@ local horizons 90 180 365
 global nreps  = 300       // number of bootstrap replications
 global seed   = 37563845  // bootstrap seed 
 
-* Versions to run
+* Versions to run (model1: homogeneous, model2: heterogeneous, no_iv: no instrument)
 global versions model2 // no_iv model1
 
 * Paths
@@ -128,7 +128,7 @@ foreach horizon of local horizons {
         * Both model1 and model2 have outcome-specific Stage 1 specs
         *plot_ps_overlap, version("model1") outcome("`outcome'") ///
             horizon(`horizon') results_dir("$results_dir")
-        *plot_ps_overlap, version("model2") outcome("`outcome'") ///
+        plot_ps_overlap, version("model2") outcome("`outcome'") ///
             horizon(`horizon') results_dir("$results_dir")
             
         * ── Bootstrap loop over versions ─────────────────────────────
@@ -160,7 +160,6 @@ foreach horizon of local horizons {
             capture log close
             log using "bootstrap_`outcome'_`version'_`horizon'd.smcl", replace
 
-            set seed $seed
             bootstrap `bootstats', ///
                 reps($nreps) seed($seed) ///
                 cluster($clustervar) idcluster(id_$clustervar) ///
