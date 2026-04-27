@@ -2,8 +2,8 @@
 *
 * Runs 2SRI IV clinical effectiveness analysis for non-elective bypass cohort.
 * Reads LASSO-selected variable lists from globals CSV (produced by R).
-* Runs four Stage 1 versions, bootstrapped, for all outcomes x timepoints.
-* Produces forest plots and IV strength diagnostics.
+* Runs bootstrapped recycled predictions for all outcomes x timepoints.
+* Produces IV strength diagnostics.
 *
 * D*X and Z*X interaction columns are pre-generated in R and included
 * directly in the appropriate Xlist — no factor variable syntax in Stata.
@@ -17,14 +17,14 @@ local horizons 90 180 365
 
 * Bootstrap settings
 global nreps  = 300       // number of bootstrap replications
-global seed   = 37563845  // bootstrap seed
+global seed   = 37563845  // bootstrap seed 
 
-* Stage 1 versions to run
+* Versions to run (model1: homogeneous, model2: heterogeneous, no_iv: no instrument)
 global versions model2 // no_iv model1
 
 * Paths
-global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs/"
-global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/clinical_effectiveness_results/"
+global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
+global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/clinical_effectiveness_results/"
 global programs_dir "C:/Users/LSHAJ82/Documents/GitHub/R-tte/stata/"
 
 * Subgroups for recycled predictions
@@ -119,16 +119,15 @@ foreach horizon of local horizons {
         global OutcomeFamily `family'
 		
         * ── IV strength ──────────────────────────────────────────────
-        *compute_iv_strength, version("z_x_stage1_instrument") outcome("`outcome'")
         compute_iv_strength, version("model1") outcome("`outcome'")
 		compute_iv_strength, version("model2") outcome("`outcome'")
         * no_iv has no first stage — IV strength not applicable
 
 		* Propensity score overlap — all horizons
         * Both model1 and model2 have outcome-specific Stage 1 specs
-        *plot_ps_overlap, version("model1") outcome("`outcome'") ///
+        *plot_ps_overlap, version("model1") outcome("`outcome'") /// * TO DO: these plots are currently overwriting each other — need to add version and horizon to filename
             horizon(`horizon') results_dir("$results_dir")
-        *plot_ps_overlap, version("model2") outcome("`outcome'") ///
+        plot_ps_overlap, version("model2") outcome("`outcome'") ///
             horizon(`horizon') results_dir("$results_dir")
             
         * ── Bootstrap loop over versions ─────────────────────────────
