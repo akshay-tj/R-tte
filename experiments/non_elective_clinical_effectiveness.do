@@ -119,14 +119,13 @@ foreach horizon of local horizons {
         global OutcomeFamily `family'
 		
         * ── IV strength ──────────────────────────────────────────────
-        *compute_iv_strength, version("z_x_stage1_instrument") outcome("`outcome'")
         compute_iv_strength, version("model1") outcome("`outcome'")
 		compute_iv_strength, version("model2") outcome("`outcome'")
         * no_iv has no first stage — IV strength not applicable
 
 		* Propensity score overlap — all horizons
         * Both model1 and model2 have outcome-specific Stage 1 specs
-        *plot_ps_overlap, version("model1") outcome("`outcome'") ///
+        *plot_ps_overlap, version("model1") outcome("`outcome'") /// * TO DO: these plots are currently overwriting each other — need to add version and horizon to filename
             horizon(`horizon') results_dir("$results_dir")
         plot_ps_overlap, version("model2") outcome("`outcome'") ///
             horizon(`horizon') results_dir("$results_dir")
