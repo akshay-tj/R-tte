@@ -324,3 +324,248 @@ plot_iv_stability <- function(df,
     facet   = facet_plot
   )
 }
+
+#' Draw a subgroup forest plot
+#'
+#' Produces a publication-style forest plot for a single outcome and time
+#' horizon. Subgroup rows are organised into labelled group sections defined
+#' by \code{subgroup_defs}; group headers are rendered in bold. Point
+#' estimates are shown as diamonds with horizontal CI lines and end-caps.
+#' Sample sizes and formatted CI strings are printed as text columns outside
+#' the plot region.
+#'
+#' @param plot_data A tibble with one row per subgroup. Required columns:
+#'   \code{var} (string matching \code{var} fields in \code{subgroup_defs}),
+#'   \code{n} (integer sample size), \code{est} (point estimate),
+#'   \code{ci_lo} (lower 95\% CI), \code{ci_hi} (upper 95\% CI).
+#' @param outcome_label String. Human-readable outcome name used in the plot
+#'   title (e.g. \code{"Days alive and out of hospital"}).
+#' @param horizon Integer. Follow-up window in days, appended to the title
+#'   (e.g. \code{90} produces \code{"... (90 days)"}).
+#' @param x_limits Numeric vector of length 2. Data-range limits for the CI
+#'   axis, e.g. \code{c(-10, 10)}. Text columns are positioned relative to
+#'   these limits — setting them too narrow will cause label overlap.
+#' @param favors_positive Logical. Controls the direction labels printed above
+#'   the x-axis. If \code{TRUE}, positive values favour early surgery and
+#'   negative values favour later surgery. If \code{FALSE}, the labels are
+#'   reversed.
+#' @param subgroup_defs A list of named lists defining the row structure of
+#'   the plot. Each entry must have three string fields: \code{var} (matches
+#'   \code{var} column in \code{plot_data}), \code{label} (display label for
+#'   the row), and \code{group} (section header; rows sharing a \code{group}
+#'   value are rendered together under a bold header). Subgroups absent from
+#'   \code{plot_data} are included as empty rows so layout remains consistent
+#'   across outcomes.
+#'
+#' @return A \code{ggplot} object. Save with \code{ggplot2::ggsave()} or pass
+#'   to \code{export_figure_docx()}.
+#'
+#' @details
+#' Text columns are positioned in data units as fixed offsets from
+#' \code{x_limits}: the subgroup label column at \code{-35\%}, the N column
+#' at \code{-12\%}, and the CI string column at \code{+12\%}. If the plot is
+#' saved at a non-standard width these offsets may need adjustment.
+#'
+#' @importFrom magrittr %>%
+#' @importFrom dplyr filter mutate if_else bind_rows
+#' @importFrom purrr map_chr
+#' @importFrom tibble tibble
+#' @importFrom ggplot2 ggplot aes geom_vline geom_segment geom_point
+#'   geom_text annotate scale_x_continuous coord_cartesian labs
+#'   theme_classic theme element_blank element_line element_text margin
+#' @export
+make_forest_plot <- function(plot_data,
+                             outcome_label,
+                             horizon,
+                             x_limits,
+                             favors_positive,
+                             subgroup_defs,
+                             as_percentage = FALSE) {
+
+  # Resolve direction labels before ggplot call
+  label_left  <- if (favors_positive) "Favors later surgery" else "Favors early surgery"
+  label_right <- if (favors_positive) "Favors early surgery" else "Favors later surgery"
+
+  # Build ordered row structure with group headers inserted
+  # Each group gets a header row (no data) + subgroup rows
+  groups <- unique(purrr::map_chr(subgroup_defs, "group"))
+  ordered_rows  <- list()
+  row_counter   <- 0
+
+  for (grp in groups) {
+    # Header row
+    row_counter <- row_counter + 1
+    ordered_rows[[length(ordered_rows) + 1]] <- tibble::tibble(
+      y_pos       = row_counter,
+      var         = NA_character_,
+      label       = grp,
+      n           = NA_integer_,
+      est         = NA_real_,
+      ci_lo       = NA_real_,
+      ci_hi       = NA_real_,
+      is_header   = TRUE
+    )
+
+    # Subgroup rows for this group
+    subs <- subgroup_defs[purrr::map_chr(subgroup_defs, "group") == grp]
+    for (s in subs) {
+      row_counter <- row_counter + 1
+      d <- plot_data %>% filter(var == s$var)
+      ordered_rows[[length(ordered_rows) + 1]] <- tibble::tibble(
+        y_pos     = row_counter,
+        var       = s$var,
+        label     = s$label,
+        n         = if (nrow(d) > 0) d$n       else NA_integer_,
+        est       = if (nrow(d) > 0) d$est     else NA_real_,
+        ci_lo     = if (nrow(d) > 0) d$ci_lo   else NA_real_,
+        ci_hi     = if (nrow(d) > 0) d$ci_hi   else NA_real_,
+        is_header = FALSE
+      )
+    }
+  }
+
+  df <- dplyr::bind_rows(ordered_rows) %>%
+    # Reverse so first row plots at top
+    mutate(y_pos = max(y_pos) - y_pos + 1)
+  
+  if (as_percentage) {
+  df <- df %>%
+    mutate(
+      est   = est   * 100,
+      ci_lo = ci_lo * 100,
+      ci_hi = ci_hi * 100
+    )
+}
+
+  # CI label for right-hand column
+  df <- df %>%
+    mutate(
+      ci_label = dplyr::if_else(
+        !is_header & !is.na(est),
+        sprintf("%.3f (%.3f, %.3f)", est, ci_lo, ci_hi),
+        NA_character_
+      )
+    )
+
+  # x positions for text columns (in data units)
+  x_left_label  <- x_limits[1] - 0.35 * diff(x_limits)
+  x_left_n      <- x_limits[1] - 0.12 * diff(x_limits)
+  x_right_ci    <- x_limits[2] + 0.12 * diff(x_limits)
+
+  ggplot(df, aes(y = y_pos)) +
+
+    # Zero line
+    geom_vline(xintercept = 0, linetype = "solid", colour = "grey50", linewidth = 0.4) +
+
+    # CI lines (non-header rows only)
+    geom_segment(
+      data = df %>% filter(!is_header & !is.na(est)),
+      aes(x = ci_lo, xend = ci_hi, y = y_pos, yend = y_pos),
+      linewidth = 0.5
+    ) +
+
+    # Whisker end caps
+    geom_segment(
+      data = df %>% filter(!is_header & !is.na(est)),
+      aes(x = ci_lo, xend = ci_lo,
+          y = y_pos - 0.2, yend = y_pos + 0.2),
+      linewidth = 0.5
+    ) +
+    geom_segment(
+      data = df %>% filter(!is_header & !is.na(est)),
+      aes(x = ci_hi, xend = ci_hi,
+          y = y_pos - 0.2, yend = y_pos + 0.2),
+      linewidth = 0.5
+    ) +
+
+    # Point estimate diamond
+    geom_point(
+      data = df %>% filter(!is_header & !is.na(est)),
+      aes(x = est),
+      shape = 18, size = 3
+    ) +
+
+    # Subgroup labels (left, indented for non-headers)
+    geom_text(
+      data = df %>% filter(!is_header),
+      aes(x = x_left_label, label = label),
+      hjust = 0, size = 3, nudge_x = diff(x_limits) * 0.02
+    ) +
+
+    # Group header labels (bold)
+    geom_text(
+      data = df %>% filter(is_header),
+      aes(x = x_left_label, label = label),
+      hjust = 0, size = 3, fontface = "bold"
+    ) +
+
+    # N column
+    geom_text(
+      data = df %>% filter(!is_header & !is.na(n)),
+      aes(x = x_left_n, label = formatC(n, format = "d", big.mark = ",")),
+      hjust = 1, size = 3
+    ) +
+
+    # N column header
+    annotate(
+      "text",
+      x     = x_left_n,
+      y     = max(df$y_pos) + 1,
+      label = "Sample size",
+      hjust = 1, size = 3
+    ) +
+
+    # CI text column (right)
+    geom_text(
+      data = df %>% filter(!is.na(ci_label)),
+      aes(x = x_right_ci, label = ci_label),
+      hjust = 0, size = 3
+    ) +
+
+    # CI column header
+    annotate(
+      "text",
+      x     = x_right_ci,
+      y     = max(df$y_pos) + 1,
+      label = "Mean Difference (95% CI)",
+      hjust = 0, size = 3
+    ) +
+    
+    # Direction labels — outcome-specific
+    annotate(
+      "text",
+      x = (x_limits[1] / 2) - diff(x_limits) * 0.05, y = max(df$y_pos) + 2,
+      label = label_left,
+      hjust = 0, size = 3, fontface = "italic"
+    ) +
+    annotate(
+      "text",
+      x = (x_limits[2] / 2) + diff(x_limits) * 0.05, y = max(df$y_pos) + 2,
+      label = label_right,
+      hjust = 1, size = 3, fontface = "italic"
+    ) +
+
+    # Scales and theme
+    scale_x_continuous(
+      limits = c(x_left_label, x_right_ci + diff(x_limits) * 0.25),
+      breaks = pretty(x_limits, n = 5),
+      labels = function(x) ifelse(x >= x_limits[1] & x <= x_limits[2],
+                                  as.character(x), "")
+    ) +
+    coord_cartesian(clip = "off") +
+    labs(
+      title = sprintf("%s (%d days)", outcome_label, horizon),
+      x = NULL, y = NULL
+    ) +
+    theme_classic() +
+    theme(
+      axis.line.y       = element_blank(),
+      axis.ticks.y      = element_blank(),
+      axis.text.y       = element_blank(),
+      axis.line.x       = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks.x      = element_line(colour = "black"),
+      axis.text.x       = element_text(size = 9),
+      plot.title        = element_text(face = "bold", size = 11, hjust = 0.5),
+      plot.margin       = margin(t = 20, r = 120, b = 10, l = 10)
+    )
+}
