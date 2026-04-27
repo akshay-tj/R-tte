@@ -30,12 +30,12 @@ HES_MORT_PATH            <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_
 AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
 
 # Input codelist paths: 
-KRT_ICD_1_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_additionalkrt.dta"
-KRT_OPCS_1_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_additionalkrt_opcs.dta"
-KRT_ICD_2_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_dialysis.dta"
-KRT_OPCS_2_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_dialysis_opcs.dta"
-KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant.dta"
-KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/RE_ Code from Kidney study/hes_codelist_kidneytransplant_opcs.dta"
+KRT_ICD_1_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_additionalkrt.dta"
+KRT_OPCS_1_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_additionalkrt_opcs.dta"
+KRT_ICD_2_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_dialysis.dta"
+KRT_OPCS_2_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_dialysis_opcs.dta"
+KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_kidneytransplant.dta"
+KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_kidneytransplant_opcs.dta"
 
 # Output paths: 
 NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_confounders.csv"
