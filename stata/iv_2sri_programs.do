@@ -129,6 +129,9 @@ syntax, ytouse(str) version(str)
     global OutcometoUse `ytouse'
     SetOutcomeNumber
 
+    * Ensure deterministic sort order for reproducibility across bootstrap replicates
+    sort $clustervar study_id
+
     * ── Stage 1: exposure model ──────────────────────────────────────
     if "`version'" == "model1" {
         * Model 1: homogeneous — Z only, no Z*X
