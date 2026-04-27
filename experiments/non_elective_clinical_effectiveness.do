@@ -17,14 +17,14 @@ local horizons 90 180 365
 
 * Bootstrap settings
 global nreps  = 300       // number of bootstrap replications
-global seed   = 37563845  // bootstrap seed
+global seed   = 37563845  // bootstrap seed 
 
-* Stage 1 versions to run
+* Versions to run
 global versions model2 // no_iv model1
 
 * Paths
-global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/analysable_subsets/april8_lasso_outputs/"
-global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/Akshay_Scripts_Bypass_TTE_180226/clinical_effectiveness_results/"
+global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
+global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/clinical_effectiveness_results/"
 global programs_dir "C:/Users/LSHAJ82/Documents/GitHub/R-tte/stata/"
 
 * Subgroups for recycled predictions
@@ -160,6 +160,7 @@ foreach horizon of local horizons {
             capture log close
             log using "bootstrap_`outcome'_`version'_`horizon'd.smcl", replace
 
+            set seed $seed
             bootstrap `bootstats', ///
                 reps($nreps) seed($seed) ///
                 cluster($clustervar) idcluster(id_$clustervar) ///
