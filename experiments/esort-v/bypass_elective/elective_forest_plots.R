@@ -1,11 +1,11 @@
-# non_elective_forest_plots.R
+# elective_forest_plots.R
 #
 # Produces forest plots for model2 (heterogeneous 2SRI) subgroup results.
 # One plot per outcome x time horizon.
 #
 # Inputs:
 #   - Bootstrap results CSVs: bootstrap_results_{outcome}_{version}_{H}d.csv
-#   - Non-elective DTAs:      non_elective_{H}d.dta [from lasso outputs]
+#   - elective DTAs:      elective_{H}d.dta [from lasso outputs]
 #
 # Outputs:
 #   - One PNG per outcome x horizon: forest_{outcome}_{H}d_{version}.png
@@ -13,8 +13,8 @@
 # Note:
 #   - No existence check on DTA files before calling get_subgroup_ns() — the
 #     loop will error if a file is missing rather than skip gracefully.
-#   - surgyr_2015 is derived as "not any of 2016-2023" — will be incorrect if
-#     the data contain surgery years outside 2015-2023.
+#   - surgyr_2016 is derived as "not any of 2017-2023" — will be incorrect if
+#     the data contain surgery years outside 2017-2023.
 
 library(dplyr)
 library(ggplot2)
@@ -29,8 +29,8 @@ source("R/plots.R")  # provides make_forest_plot()
 # CONFIGURATION
 # =============================================================================
 
-DATA_DIR    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
-RESULTS_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/clinical_effectiveness_results/"
+DATA_DIR    <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/lasso_outputs/"
+RESULTS_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/clinical_effectiveness_results/"
 
 TIME_HORIZONS <- c(90, 180, 365)
 VERSION       <- "model2"
@@ -88,7 +88,6 @@ SUBGROUP_DEFS <- list(
   list(var = "comorbidity_not1", label = "No",      group = "Diabetes"),
   list(var = "krt_yn",           label = "Yes",     group = "KRT"),
   list(var = "krt_no",           label = "No",      group = "KRT"),
-  list(var = "surgyr_2015",      label = "2015",    group = "Year of surgery"),
   list(var = "surgyr_2016",      label = "2016",    group = "Year of surgery"),
   list(var = "surgyr_2017",      label = "2017",    group = "Year of surgery"),
   list(var = "surgyr_2018",      label = "2018",    group = "Year of surgery"),
@@ -115,9 +114,9 @@ get_subgroup_ns <- function(dta_path, subgroup_defs) {
       fontaine_not4    = 1L - fontaine_4,
       comorbidity_not1 = 1L - comorbidity_1,
       krt_no           = 1L - krt_yn,
-      # surgyr_2015 derived as "not any of 2016-2023" — see file-level assumption
-      surgyr_2015      = as.integer(
-        surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 &
+      # surgyr_2016 derived as "not any of 2017-2023" — see file-level assumption
+      surgyr_2016      = as.integer(
+        surgyr_2017 == 0 & surgyr_2018 == 0 &
         surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 &
         surgyr_2022 == 0 & surgyr_2023 == 0
       )
@@ -178,7 +177,7 @@ get_estimates <- function(results_dir, outcome_col, horizon, version,
 
 for (h in TIME_HORIZONS) {
 
-  dta_path <- file.path(DATA_DIR, sprintf("non_elective_%dd.dta", h))
+  dta_path <- file.path(DATA_DIR, sprintf("elective_%dd.dta", h))
   ns       <- get_subgroup_ns(dta_path, SUBGROUP_DEFS)
 
   for (outcome_def in OUTCOMES) {
