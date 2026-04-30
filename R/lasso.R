@@ -89,18 +89,27 @@
 #' Returns a list with the augmented dataset and the new column names.
 #' Warns if any generated name exceeds 32 characters (Stata hard limit).
 #' @keywords internal
-.add_pairwise_xx_interactions <- function(data, vars) {
+.add_pairwise_xx_interactions <- function(data, vars, exclude_from_interactions = character(0)) {
   vars <- unique(trimws(vars))
   vars <- vars[!is.na(vars)]
   vars <- vars[vars != ""]
+  
+  # Remove excluded variables from interaction pool only — they remain as main effects
+  vars_for_interactions <- setdiff(vars, exclude_from_interactions)
+  if (length(exclude_from_interactions) > 0) {
+    message(sprintf(
+      "  Excluded from X*X pool: %s",
+      paste(exclude_from_interactions, collapse = ", ")
+    ))
+  }
 
-  if (length(vars) < 2) {
+  if (length(vars_for_interactions) < 2) {
     return(list(data = data, col_names = character(0)))
   }
 
-  pairs         <- utils::combn(vars, 2, simplify = FALSE)
+  pairs         <- utils::combn(vars_for_interactions, 2, simplify = FALSE)
   new_col_names <- vapply(pairs, function(p) paste0(p[1], "_x_", p[2]), character(1))
-
+  
   too_long <- new_col_names[nchar(new_col_names) > 32]
   if (length(too_long) > 0) {
     warning(
@@ -337,6 +346,7 @@ run_lasso_iv_selection <- function(
     instrument,
     prespecified_subgroups,
     penalized_main_effects,
+    exclude_from_interactions = character(0), 
     family_stage1  = "binomial",
     family_stage2  = "gaussian",
     include_resid_d = TRUE,
@@ -473,7 +483,7 @@ run_lasso_iv_selection <- function(
   # selection stages (each stage selects independently from this pool)
   # ---------------------------------------------------------------------------
 
-  xx_result   <- .add_pairwise_xx_interactions(dataset, union_main_effects)
+  xx_result   <- .add_pairwise_xx_interactions(dataset, union_main_effects, exclude_from_interactions = exclude_from_interactions)
   dataset     <- xx_result$data
   all_xx_cols <- trimws(xx_result$col_names)
 
