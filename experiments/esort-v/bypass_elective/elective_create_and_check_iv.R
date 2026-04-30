@@ -2,14 +2,14 @@
 # create_and_check_iv.R
 #
 # Purpose: Build the tendency-to-expedite-surgery (TTES) instrumental variable
-#          for the non-elective bypass cohort, then produce IV diagnostic plots
+#          for the elective bypass cohort, then produce IV diagnostic plots
 #          (covariate balance, IV stability across centres).
 #
-# Assumes in environment: nvr_df, non_elective_cohort,
+# Assumes in environment: nvr_df, elective_cohort, elective_cohort_lookback_only,
 #                         INCLUSION_CRITERIA, HIGH_VOL_HOSPS
 #
 # Outputs:
-#   - non_elective_IV.csv
+#   - elective_IV.csv
 #   - covariate_balance.png
 #   - iv_stability_overall.png
 #   - iv_stability_facet.png
@@ -18,8 +18,6 @@
 library(tidyverse)
 
 source("R/create_iv.R")
-source("R/utils.R")
-source("R/cohort.R")
 source("R/plots.R")
 
 # =============================================================================
@@ -27,58 +25,27 @@ source("R/plots.R")
 # =============================================================================
 
 LOOKBACK_DAYS    <- 365L
-STUDY_START_DATE <- as.Date("2015-01-01")
-IV_OUTPUT_PATH   <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_ttes.csv"
-RESULTS_DIR      <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/"
+IV_OUTPUT_PATH   <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_ttes.csv"
+RESULTS_DIR      <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/"
 
 # =============================================================================
 # SECTION 1: Build lookback cohort (pre-study peers for TTES denominator)
 # =============================================================================
 
-# Patients admitted before study start — provide historical peer pool for
-# study patients whose 1-year lookback window predates STUDY_START_DATE.
-# These rows are context only (include_flag = 0); they are never analysed.
-nvr_lookback <- do.call(
-  perform_inclusion,
-  c(
-    list(
-      df    = nvr_df %>%
-        filter(`NvrEpisode:AdmissionDate` < STUDY_START_DATE) %>%
-        distinct(),
-      label = "NVR_include"
-    ),
-    INCLUSION_CRITERIA
-  )
-)
-
-check_duplicates(nvr_lookback, "Patient:PatientId")
-nvr_lookback <- handle_duplicates(nvr_lookback, id_col = "Patient:PatientId")
-
-nvr_lookback <- nvr_lookback %>%
-  filter(`NvrEpisode:AdmissionModeCode` == 2) %>%
+names(elective_cohort_lookback_only)
+elective_cohort_lookback_only <- elective_cohort_lookback_only %>%
+  select(STUDY_ID, early_surgery, valid_op_date, NvrHospitalName) %>%
   mutate(
-    daystosurgery = as.numeric(
-      as.Date(`NvrEpisode:ProcedureStartDate`) -
-      as.Date(`NvrEpisode:AdmissionDate`)
-    )
-  ) %>%
-  filter(daystosurgery > 0, daystosurgery <= 21) %>%
-  mutate(early_surgery = if_else(daystosurgery <= 5, 1L, 0L), 
-         `Patient:PatientId`  = as.character(`Patient:PatientId`)) %>%
-  select(
-    early_surgery,
-    `Patient:PatientId`,
-    `NvrEpisode:AdmissionDate`,
-    NvrHospitalName
-  ) %>%
-  mutate(include_flag = 0L)
+    include_flag = 0L,
+    STUDY_ID     = as.character(STUDY_ID)
+  ) 
 
 # =============================================================================
 # SECTION 2: Prepare study cohort for combining with lookback cohort
 # =============================================================================
 
-study_cohort_slim <- non_elective_cohort %>%
-  select(STUDY_ID, early_surgery, `NvrEpisode:AdmissionDate`, NvrHospitalName) %>%
+study_cohort_slim <- elective_cohort %>%
+  select(STUDY_ID, early_surgery, valid_op_date, NvrHospitalName) %>%
   mutate(
     include_flag = 1L,
     STUDY_ID     = as.character(STUDY_ID)
@@ -89,7 +56,7 @@ study_cohort_slim <- non_elective_cohort %>%
 # SECTION 3: Calculate TTES instrumental variable
 # =============================================================================
 
-combined_df <- bind_rows(nvr_lookback, study_cohort_slim)
+combined_df <- bind_rows(elective_cohort_lookback_only, study_cohort_slim)
 
 n_study <- sum(combined_df$include_flag == 1)
 message(sprintf("Calculating TTES for %d study patients...", n_study))
@@ -103,8 +70,9 @@ combined_df <- combined_df %>%
         combined_df,
         `Patient:PatientId`,
         NvrHospitalName,
-        `NvrEpisode:AdmissionDate`,
-        lookback_days = LOOKBACK_DAYS
+        valid_op_date,
+        lookback_days = LOOKBACK_DAYS, 
+        date_col      = "valid_op_date"
       ),
       NA_real_
     )
@@ -141,7 +109,7 @@ message(sprintf("IV written to: %s", IV_OUTPUT_PATH))
 # SECTION 4: Join IV to study cohort
 # =============================================================================
 
-analysis_df <- non_elective_cohort %>%
+analysis_df <- elective_cohort %>%
   left_join(iv_df, by = "STUDY_ID") %>%
   rename(
     study_id           = STUDY_ID,
