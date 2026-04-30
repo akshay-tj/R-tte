@@ -1,8 +1,8 @@
-# experiment_run_non_elective.R
+# elective_create_analysis_df.R
 #
-# Builds the non-elective bypass study cohort from raw NVR + HES data,
-# then calculates TTE outcomes (90 / 180 / 365 day) and writes two CSVs: 
-# 1) baseline characteristics + confounders, 2) outcomes.
+# Builds the elective bypass study cohort from raw NVR + HES data,
+# then calculates TTE outcomes (90 / 180 / 365 day) and writes three CSVs: 
+# 1) baseline characteristics + confounders, 2) outcomes, 3) lookback-only cohort.
 
 library(dplyr)
 library(readr)
@@ -26,20 +26,22 @@ source("R/vascular_outcomes.R")
 # Input DF Paths: 
 NVR_DF_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/NVR data for ESORT.xlsx"
 HES_APC_PATH             <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_APC_2015_to_2023.qs"
+HES_OP_PATH              <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_OP_2015_to_2023.qs"
 HES_MORT_PATH            <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_CIVREG_MORT.txt"
 AVG_BYPASS_SURGERIES_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/NVR Data - May 2025/Bypass_subsets/Avg_bypass_surgeries_for_clti_per_hospital.csv"
 
 # Input codelist paths: 
-KRT_ICD_1_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_additionalkrt.dta"
-KRT_OPCS_1_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_additionalkrt_opcs.dta"
-KRT_ICD_2_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_dialysis.dta"
-KRT_OPCS_2_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_dialysis_opcs.dta"
-KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_kidneytransplant.dta"
-KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/krt_codelists/hes_codelist_kidneytransplant_opcs.dta"
+KRT_ICD_1_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_additionalkrt.dta"
+KRT_OPCS_1_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_additionalkrt_opcs.dta"
+KRT_ICD_2_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_dialysis.dta"
+KRT_OPCS_2_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_dialysis_opcs.dta"
+KRT_ICD_3_PATH  <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_kidneytransplant.dta"
+KRT_OPCS_3_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/krt_codelists/hes_codelist_kidneytransplant_opcs.dta"
 
 # Output paths: 
-NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_confounders.csv"
-NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_outcomes.csv"
+ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_confounders.csv"
+ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_outcomes.csv"
+ELECTIVE_COHORT_LOOKBACK_ONLY_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_lookback_only.csv"
 
 # =============================================================================
 # Parameters to define 
@@ -63,10 +65,17 @@ HES_APC_WANTED_COLS <- c(
   paste0("OPDATE_", sprintf("%02d", 1:24))
 )
 
+HES_OP_WANTED_COLS <- c(
+  "STUDY_ID", "APPTDATE", "TRETSPEF", "ATTENDED"
+)
+
 NVR_ID_COL        <- "Patient:PatientId"
 NVR_ADMISSION_COL <- "NvrEpisode:AdmissionDate"
 HES_APC_ID_COL    <- "STUDY_ID"
 HES_ID_CLEAN_COL  <- "STUDY_ID_clean"
+
+# HES OP Input codelist for qualifying OP visits: defined as per https://doi.org/10.1093/bjs/znac109
+TREATMENT_SPECIALTY_CODES <- c("107", "307", "653", "663", "100") # vascular surgery (2004 onwards),  Diabetes service, Podiatric/Podiatric surg services, general surgery  
 
 # =============================================================================
 # SECTION 1: HES — load and clean once
@@ -121,36 +130,74 @@ nvr_linked <- nvr_deduped %>%
   )
 
 # =============================================================================
-# SECTION 3: Non-elective cohort — arm assignment and derived variables
+# SECTION 3: Elective cohort — arm assignment and derived variables
 # =============================================================================
-non_elective_cohort <- nvr_linked %>%
+elective_cohort <- nvr_linked %>%
   { 
     message("Admission mode counts (before filter):")
     print(count(., `NvrEpisode:AdmissionModeCode`, sort = TRUE))
     . 
   } %>%
-  filter(`NvrEpisode:AdmissionModeCode` == 2) %>%
+  filter(`NvrEpisode:AdmissionModeCode` == 1) %>%
   { message("After admission mode filter — rows: ", nrow(.),
-            " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } %>%
+            " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } 
+            
+  # Get valid OP visits for elective cohort from HES OP data, to derive daystosurgery and early_surgery variables
+  HES_OP_df_clean <- read_qs_df(HES_OP_PATH, HES_OP_WANTED_COLS) %>%
+  clean_HES_df_id_for_matching(id_col = "STUDY_ID") %>%
+  mutate(
+      APPTDATE = as.Date(APPTDATE),
+      TRETSPEF = as.character(TRETSPEF)
+    ) %>%
+    filter(ATTENDED %in% c("5", "6")) %>% # participants who actually attended 
+    filter(TRETSPEF %in% TREATMENT_SPECIALTY_CODES) # participants who were treated by specialities of our interest
+ 
+  # Expand elective cohort by joining all HES OP records and compute days between OP visit and admission
+  joined <- elective_cohort %>%
+  left_join(HES_OP_df_clean, by = c(`Patient:PatientId` = "STUDY_ID_clean")) %>%
+  mutate(days_before = as.integer(`NvrEpisode:AdmissionDate` - APPTDATE))
+
+# Retain only OP visits within 30-day pre-admission window, selecting the closest per patient-admission
+  valid_op <- joined %>%
+  filter(days_before >= 0, days_before <= 30) %>%
+  arrange(`Patient:PatientId`, `NvrEpisode:AdmissionDate`, days_before) %>%
+  group_by(`Patient:PatientId`, `NvrEpisode:AdmissionDate`) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(`Patient:PatientId`, `NvrEpisode:AdmissionDate`, valid_op_date = APPTDATE)
+
+# Left join matched OP date back onto elective cohort; unmatched patients retain NA for valid_op_date
+  elective_cohort <- elective_cohort %>%
+  left_join(valid_op, by = c("Patient:PatientId", "NvrEpisode:AdmissionDate"))
+  
+# get counts of missing values in valid_op_date 
+message("Counts of missing valid_op_date (pre-surgery OP visit):")
+print(table(is.na(elective_cohort$valid_op_date)))
+  
+# drop patients with no valid OP visit and compute daystosurgery, early_surgery, year_of_surgery, covid_time_period, comorbidity and medication flags
+elective_cohort <- elective_cohort %>%
+  filter(!is.na(valid_op_date)) %>%
+  { message("After valid OP visit filter — rows: ", nrow(.),
+            " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } %>% 
   mutate(
     daystosurgery = as.numeric(
       as.Date(`NvrEpisode:ProcedureStartDate`) -
-      as.Date(`NvrEpisode:AdmissionDate`)
+      as.Date(valid_op_date)
     )
   ) %>%
   {
     message("daystosurgery breakdown (before filter):")
     message("  daystosurgery <= 0  : ", sum(.$daystosurgery <= 0,  na.rm = TRUE), " rows")
-    message("  daystosurgery 1-21  : ", sum(.$daystosurgery >= 1 & .$daystosurgery <= 21, na.rm = TRUE), " rows")
-    message("  daystosurgery > 21  : ", sum(.$daystosurgery > 21,  na.rm = TRUE), " rows")
+    message("  daystosurgery 1-14  : ", sum(.$daystosurgery >= 1 & .$daystosurgery <= 14, na.rm = TRUE), " rows")
+    message("  daystosurgery > 60  : ", sum(.$daystosurgery > 60,  na.rm = TRUE), " rows")
     message("  daystosurgery NA    : ", sum(is.na(.$daystosurgery)), " rows")
     .
   } %>%
-  filter(daystosurgery > 0 & daystosurgery <= 21) %>%
+  filter(daystosurgery > 0 & daystosurgery <= 60) %>%
   { message("After daystosurgery filter — rows: ", nrow(.),
             " | unique patients: ", n_distinct(.[["Patient:PatientId"]])); . } %>%
   mutate(
-    early_surgery = if_else(daystosurgery <= 5, 1L, 0L),
+    early_surgery = if_else(daystosurgery <= 14, 1L, 0L),
     year_of_surgery = year(as.Date(`NvrEpisode:ProcedureStartDate`)),
     covid_time_period = case_when(
       `NvrEpisode:AdmissionDate` <= as.Date("2020-03-15") ~ "pre_covid",
@@ -173,8 +220,8 @@ non_elective_cohort <- nvr_linked %>%
   select(-medication_0, -medication_5, -medication_6,
          -medication_7, -medication_8, -medication_9)
 
-names(non_elective_cohort)
-non_elective_cohort <- non_elective_cohort %>% select(-c(`comorbidity_8 `, `comorbidity_7 `))
+names(elective_cohort)
+elective_cohort <- elective_cohort %>% select(-c(`comorbidity_7 `))
 
 # =============================================================================
 # SECTION 4: HES — filter to cohort and compute index-admission covariates
@@ -182,13 +229,13 @@ non_elective_cohort <- non_elective_cohort %>% select(-c(`comorbidity_8 `, `como
 
 # All HES rows for cohort patients
 HES_cohort_all <- subset_HES_to_NVR_cohort(
-  HES_APC_df_clean, non_elective_cohort, NVR_ID_COL, HES_ID_CLEAN_COL
+  HES_APC_df_clean, elective_cohort, NVR_ID_COL, HES_ID_CLEAN_COL
 )
 
 # Join NVR admission date so we can identify the index admission row
 HES_cohort_all <- HES_cohort_all %>%
   left_join(
-    non_elective_cohort %>%
+    elective_cohort %>%
       select(`Patient:PatientId`, `NvrEpisode:AdmissionDate`) %>%
       mutate(STUDY_ID_clean = as.character(`Patient:PatientId`)) %>%
       rename(index_admidate = `NvrEpisode:AdmissionDate`) %>%
@@ -274,7 +321,7 @@ imd_flags <- HES_index %>%
 # =============================================================================
 
 # Assemble the final cohort-level DF by left-joining the HES-derived covariate flags to the NVR cohort.  
-non_elective_cohort <- non_elective_cohort %>%
+elective_cohort <- elective_cohort %>%
   rename(STUDY_ID = `Patient:PatientId`) %>%
   left_join(charlson_flags %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(scarf_flags   %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
@@ -282,26 +329,37 @@ non_elective_cohort <- non_elective_cohort %>%
   left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID")
 
 # check for missing data in the final cohort DF
-cat("Rows:", nrow(non_elective_cohort), "\n\nMissing data summary:\n")
-print(colSums(is.na(non_elective_cohort)))
+cat("Rows:", nrow(elective_cohort), "\n\nMissing data summary:\n")
+print(colSums(is.na(elective_cohort)))
 
 # keep only complete cases (ignoring missingness in "PostOp:CompFurtherSurgeryCode", "Indications:IndicationSideCode" since these are not confounders)
-non_elective_cohort <- non_elective_cohort %>%  filter(complete.cases(select(., -`PostOp:CompFurtherSurgeryCode`, -`Indications:IndicationSideCode`)))
+elective_cohort <- elective_cohort %>%  filter(complete.cases(select(., -`PostOp:CompFurtherSurgeryCode`, -`Indications:IndicationSideCode`)))
 
-write.csv(non_elective_cohort, NON_ELECTIVE_COHORT_BASELINE_DF_PATH, row.names = FALSE)
-message(sprintf("  Cohort written: %d patients → %s", nrow(non_elective_cohort), NON_ELECTIVE_COHORT_BASELINE_DF_PATH))
+print(min(elective_cohort$valid_op_date)) # 2014-04-01 # HES data starts from April 2015; we need one year for look back 
 
+elective_cohort_lookback_only <- elective_cohort %>% filter(valid_op_date < as.Date("2016-04-01"))
+elective_cohort <- elective_cohort %>% filter(valid_op_date >= as.Date("2016-04-01"))
+
+# print nrows
+message(sprintf("Final cohort (complete cases, with lookback) — rows: %d | unique patients: %d", nrow(elective_cohort), n_distinct(elective_cohort$STUDY_ID)))
+message(sprintf("Lookback-only cohort — rows: %d | unique patients: %d", nrow(elective_cohort_lookback_only), n_distinct(elective_cohort_lookback_only$STUDY_ID)))
+
+write.csv(elective_cohort, ELECTIVE_COHORT_BASELINE_DF_PATH, row.names = FALSE)
+message(sprintf("  Cohort written: %d patients → %s", nrow(elective_cohort), ELECTIVE_COHORT_BASELINE_DF_PATH))
+
+write.csv(elective_cohort_lookback_only, ELECTIVE_COHORT_LOOKBACK_ONLY_DF_PATH, row.names = FALSE)
+message(sprintf("  Lookback-only cohort written: %d patients → %s", nrow(elective_cohort_lookback_only), ELECTIVE_COHORT_LOOKBACK_ONLY_DF_PATH))
 # =============================================================================
 # SECTION 6: HES — filter to final cohort + DISDATE cleaning + prep for outcomes
 # =============================================================================
-# Now that non_elective_cohort is finalised (complete cases only), build the
+# Now that elective_cohort is finalised (complete cases only), build the
 # cohort-specific HES object used by calculate_outcomes().
 
 sentinel_dates <- as.Date(c("1800-01-01", "1801-01-01"))
 
-HES_APC_non_elective_cohort <- HES_APC_df_clean %>%
+HES_APC_elective_cohort <- HES_APC_df_clean %>%
   semi_join(
-    non_elective_cohort %>% mutate(STUDY_ID = as.character(STUDY_ID)),
+    elective_cohort %>% mutate(STUDY_ID = as.character(STUDY_ID)),
     by = c("STUDY_ID_clean" = "STUDY_ID")
   ) %>%
   group_by(STUDY_ID_clean, ADMIDATE) %>%
@@ -314,7 +372,7 @@ HES_APC_non_elective_cohort <- HES_APC_df_clean %>%
   ) %>%
   ungroup() %>%
   left_join(
-    non_elective_cohort %>%
+    elective_cohort %>%
       select(STUDY_ID, `NvrEpisode:AdmissionDate`) %>%
       rename(
         STUDY_ID_clean     = STUDY_ID,
@@ -341,15 +399,15 @@ mortality_clean <- read.table(HES_MORT_PATH, header = TRUE, sep = "|") %>%
 # SECTION 8: TTE outcomes - Primary 
 # =============================================================================
 
-non_elective_outcomes <- calculate_outcomes(
-  cohort = non_elective_cohort %>%
+elective_outcomes <- calculate_outcomes(
+  cohort = elective_cohort %>%
     mutate(STUDY_ID = as.character(STUDY_ID)) %>%
     rename(
       study_id                 = STUDY_ID,
       nvr_admission_date       = `NvrEpisode:AdmissionDate`,
       nvr_procedure_start_date = `NvrEpisode:ProcedureStartDate`
     ),
-  hes_admissions = HES_APC_non_elective_cohort %>%
+  hes_admissions = HES_APC_elective_cohort %>%
     rename(
       study_id           = STUDY_ID_clean,
       hes_admission_date = ADMIDATE,
@@ -388,13 +446,13 @@ amp_prefixes <- "X09"
 censoring_date    <- as.Date("2024-03-31")  # study end date
 
 # --- Pre-filter HES to post-index episodes only ----------------------------
-HES_post_index_df_for_secondary_outcomes <- subset_HES_to_NVR_cohort(HES_cohort_all, non_elective_cohort, "STUDY_ID", HES_ID_CLEAN_COL) %>% 
+HES_post_index_df_for_secondary_outcomes <- subset_HES_to_NVR_cohort(HES_cohort_all, elective_cohort, "STUDY_ID", HES_ID_CLEAN_COL) %>% 
                           select(-c("EPISTART", "EPIEND", "DISDATE", "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", "OPERTN_4_CONCAT")) %>% 
                           filter(ADMIDATE >  index_admidate) %>%  # keep only index and post-index admissions 
                           rename(study_id = STUDY_ID_clean) # rename for consistency with limb event flagging function
 
 # --- Extract index limb laterality from NVR --------------------------------
-nvr_index_laterality <- non_elective_cohort %>%
+nvr_index_laterality <- elective_cohort %>%
                         select(study_id = STUDY_ID, index_side = `Indications:IndicationSideCode`) %>%
                         distinct()
 
@@ -410,7 +468,7 @@ limb_events <- flag_limb_events(
 
 # --- Compute ILR, ILMA, AFS outcomes ---------------------------------------
 limb_outcomes <- compute_limb_outcomes(
-  cohort         = non_elective_cohort %>% rename(study_id = STUDY_ID),
+  cohort         = elective_cohort %>% rename(study_id = STUDY_ID),
   limb_events    = limb_events,
   mortality      = mortality_clean,
   start_date_col = "NvrEpisode:ProcedureStartDate",
@@ -418,17 +476,17 @@ limb_outcomes <- compute_limb_outcomes(
   time_horizons  = c(90L, 180L, 365L)
 )
 
-non_elective_outcomes <- non_elective_outcomes %>%
+elective_outcomes <- elective_outcomes %>%
   left_join(limb_outcomes, by = "study_id") %>%
   left_join(
-    non_elective_cohort %>%
+    elective_cohort %>%
       select(STUDY_ID, early_surgery) %>%
       mutate(study_id = as.character(STUDY_ID)),
     by = "study_id"
   )
 
-write.csv(non_elective_outcomes,
-          NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH,
+write.csv(elective_outcomes,
+          ELECTIVE_COHORT_OUTCOMES_DF_PATH,
           row.names = FALSE)
 
-message(sprintf("Outcomes written: %d patients → %s", nrow(non_elective_outcomes), NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH))
+message(sprintf("Outcomes written: %d patients → %s", nrow(elective_outcomes), ELECTIVE_COHORT_OUTCOMES_DF_PATH))
