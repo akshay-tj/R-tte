@@ -4,18 +4,26 @@ library(haven)
 
 source("R/lasso.R")
 
+ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_confounders.csv"
+ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_outcomes.csv"
+ELECTIVE_IV_OUTPUT_PATH   <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/analysable_subsets/elective_bypass_study_participants_with_ttes.csv"
+
+elective_cohort <- read.csv(ELECTIVE_COHORT_BASELINE_DF_PATH)
+elective_outcomes <- read.csv(ELECTIVE_COHORT_OUTCOMES_DF_PATH)
+elective_iv <- read.csv(ELECTIVE_IV_OUTPUT_PATH)
+
 # ── 1. Build analysis dataset ─────────────────────────────────────────────────
 
-afs_df <- non_elective_cohort %>%
+afs_df <- elective_cohort %>%
   mutate(study_id = as.character(STUDY_ID)) %>%
   left_join(
-    non_elective_outcomes %>%
+    elective_outcomes %>%
       mutate(study_id = as.character(study_id)) %>%
       select(study_id, afs_days, afs_event),
     by = "study_id"
   ) %>%
   left_join(
-    non_elective_iv %>%
+    elective_iv %>%
       mutate(study_id = as.character(STUDY_ID)) %>%
       select(study_id, instrumental_variable),
     by = "study_id"
