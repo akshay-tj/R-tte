@@ -1,12 +1,12 @@
 source("R/descriptives.R")
 
 # =============================================================================
-# Descriptive tables — Non-elective LL bypass cohort
+# Descriptive tables — Elective LL bypass cohort
 #
 # Assumes the following objects are already in the environment,
-# produced by non_elective_create_analysis_df.R:
-#   - non_elective_cohort   : cohort tibble with baseline characteristics
-#   - non_elective_outcomes : tibble with all outcome columns
+# produced by elective_create_analysis_df.R:
+#   - elective_cohort   : cohort tibble with baseline characteristics
+#   - elective_outcomes : tibble with all outcome columns
 #
 # Produces:
 #   - Table 1 : baseline characteristics stratified by early_surgery
@@ -19,7 +19,7 @@ source("R/descriptives.R")
 # Table 1 — baseline characteristics
 # =============================================================================
 
-non_elective_cohort_table1 <- non_elective_cohort %>%
+elective_cohort_table1 <- elective_cohort %>%
   mutate(
     `Patient:GenderCode` = factor(
       `Patient:GenderCode`,
@@ -78,12 +78,12 @@ cat_vars_t1 <- c(
 )
 
 descriptive_table(
-  data       = non_elective_cohort_table1,
+  data       = elective_cohort_table1,
   strata_col = "early_surgery",
   cont_vars  = cont_vars_t1,
   cat_vars   = cat_vars_t1,
   ttest      = FALSE,
-  label      = "baseline characteristics — LL bypass non-elective"
+  label      = "baseline characteristics — LL bypass elective"
 )
 
 # =============================================================================
@@ -92,7 +92,7 @@ descriptive_table(
 
 # get stats for incomplete follow-up due to study end date (31st March 2024)
 # 180 day outcomes; participants with procedure after 30th September 2023 will not have full 180 day follow-up
-non_elective_cohort %>%
+elective_cohort %>%
   mutate(after_date = `NvrEpisode:ProcedureStartDate` >= as.Date("2023-09-30")) %>%
   group_by(early_surgery) %>%
   summarise(
@@ -102,7 +102,7 @@ non_elective_cohort %>%
   )
 
 # 365 day outcomes; participants with procedure after 30th March 2023 will not have full 365 day follow-up 
-non_elective_cohort %>%
+elective_cohort %>%
   mutate(after_date = `NvrEpisode:ProcedureStartDate` >= as.Date("2023-03-30")) %>%
   group_by(early_surgery) %>%
   summarise(
@@ -115,19 +115,19 @@ cont_90 <- c("daoh_bypass_surg_90d", "total_los_no_90d",
              "bypass_surg_proc_los_no", "post_bypass_surg_los_no_90d",
              "bypass_surg_los_no")
 cat_90  <- c("readmit_post_bypass_surg_90d", "died_post_bypass_surg_90d", "ilr_90d", "ilma_90d")
-outcomes_90_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
+outcomes_90_days <- descriptive_table(elective_outcomes, strata_col = "early_surgery",
                                     cont_vars = cont_90, cat_vars = cat_90, ttest = TRUE,
                                     label = "90 days")
 
 cont_180 <- c("daoh_bypass_surg_180d", "total_los_no_180d", "post_bypass_surg_los_no_180d")
 cat_180  <- c("readmit_post_bypass_surg_180d", "died_post_bypass_surg_180d", "ilr_180d", "ilma_180d")
-outcomes_180_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
+outcomes_180_days <- descriptive_table(elective_outcomes, strata_col = "early_surgery",
                                       cont_vars = cont_180, cat_vars = cat_180, ttest = TRUE,
                                       label = "180 days")
 
 cont_365 <- c("daoh_bypass_surg_365d", "total_los_no_365d", "post_bypass_surg_los_no_365d")
 cat_365  <- c("readmit_post_bypass_surg_365d", "died_post_bypass_surg_365d", "ilr_365d", "ilma_365d")
-outcomes_365_days <- descriptive_table(non_elective_outcomes, strata_col = "early_surgery",
+outcomes_365_days <- descriptive_table(elective_outcomes, strata_col = "early_surgery",
                                      cont_vars = cont_365, cat_vars = cat_365, ttest = TRUE,
                                      label = "365 days")
 
@@ -136,7 +136,7 @@ outcomes_365_days <- descriptive_table(non_elective_outcomes, strata_col = "earl
 afs_horizons <- c(90, 180, 365)
 
 afs_crude_rates <- purrr::map_dfr(afs_horizons, function(h) {
-  non_elective_outcomes %>%
+  elective_outcomes %>%
     mutate(
       afs_days_h  = pmin(afs_days, h),
       afs_event_h = as.integer(afs_event == 1L & afs_days <= h)
