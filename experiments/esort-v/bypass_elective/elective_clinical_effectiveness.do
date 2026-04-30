@@ -1,6 +1,6 @@
-* non_elective_run_clinical_effectiveness.do
+* elective_run_clinical_effectiveness.do
 *
-* Runs 2SRI IV clinical effectiveness analysis for non-elective bypass cohort.
+* Runs 2SRI IV clinical effectiveness analysis for elective bypass cohort.
 * Reads LASSO-selected variable lists from globals CSV (produced by R).
 * Runs bootstrapped recycled predictions for all outcomes x timepoints.
 * Produces IV strength diagnostics.
@@ -13,7 +13,7 @@
 * ============================================================================
 
 * Timepoints to analyse (must match DTA/globals files produced by R)
-local horizons 90 180 365 
+local horizons 90 d180 365 //   
 
 * Bootstrap settings
 global nreps  = 300       // number of bootstrap replications
@@ -23,12 +23,12 @@ global seed   = 37563845  // bootstrap seed
 global versions model2 // no_iv model1
 
 * Paths
-global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
-global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/clinical_effectiveness_results/"
+global data_dir     "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/lasso_outputs/"
+global results_dir  "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/clinical_effectiveness_results/"
 global programs_dir "C:/Users/LSHAJ82/Documents/GitHub/R-tte/stata/"
 
 * Subgroups for recycled predictions
-global Subgrouplist All gender_F gender_M fontaine_4 fontaine_not4 comorbidity_1 comorbidity_not1 krt_yn krt_no surgyr_2015 surgyr_2016 surgyr_2017 surgyr_2018 surgyr_2019 surgyr_2020 surgyr_2021 surgyr_2022 surgyr_2023
+global Subgrouplist All gender_F gender_M fontaine_4 fontaine_not4 comorbidity_1 comorbidity_not1 krt_yn krt_no surgyr_2016 surgyr_2017 surgyr_2018 surgyr_2019 surgyr_2020 surgyr_2021 surgyr_2022 surgyr_2023
 
 * Cluster variable
 global clustervar HospitalCluster
@@ -61,8 +61,8 @@ foreach horizon of local horizons {
     global Horizon = `horizon'
 
     * ── Load data ────────────────────────────────────────────────────
-    local dta_path     = "$data_dir" + "non_elective_`horizon'd.dta"
-    local globals_path = "$data_dir" + "non_elective_`horizon'd_globals.csv"
+    local dta_path     = "$data_dir" + "elective_`horizon'd.dta"
+    local globals_path = "$data_dir" + "elective_`horizon'd_globals.csv"
 
     use "`dta_path'", clear
     encode nvrhospitalname, gen(HospitalCluster)
@@ -71,7 +71,7 @@ foreach horizon of local horizons {
     gen fontaine_not4    = 1 - fontaine_4
     gen comorbidity_not1 = 1 - comorbidity_1
     gen krt_no           = 1 - krt_yn
-    gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
+    gen surgyr_2016 = (surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
 
     * ── Read globals CSV ─────────────────────────────────────────────
     import delimited using "`globals_path'", clear varnames(1)
@@ -90,7 +90,7 @@ foreach horizon of local horizons {
     gen fontaine_not4    = 1 - fontaine_4
     gen comorbidity_not1 = 1 - comorbidity_1
     gen krt_no           = 1 - krt_yn
-    gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
+    gen surgyr_2016 = (surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
 
     * Build Outcomelist global
     global Outcomelist
@@ -182,7 +182,7 @@ foreach horizon of local horizons {
             gen fontaine_not4    = 1 - fontaine_4
             gen comorbidity_not1 = 1 - comorbidity_1
             gen krt_no           = 1 - krt_yn
-            gen surgyr_2015 = (surgyr_2016 == 0 & surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
+            gen surgyr_2016 = (surgyr_2017 == 0 & surgyr_2018 == 0 & surgyr_2019 == 0 & surgyr_2020 == 0 & surgyr_2021 == 0 & surgyr_2022 == 0 & surgyr_2023 == 0)
         }
     }
 }
