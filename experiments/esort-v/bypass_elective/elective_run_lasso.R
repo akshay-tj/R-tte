@@ -1,22 +1,23 @@
-# non_elective_run_lasso.R
+# elective_run_lasso.R
 #
 # Runs LASSO IV variable selection for all outcomes × timepoints for the
-# non-elective bypass cohort. Exports one analysis-ready DTA + globals CSV
+# elective bypass cohort. Exports one analysis-ready DTA + globals CSV
 # per timepoint for Stata modelling.
 #
 # Assumes the following objects are already in the environment:
-#   - non_elective_outcomes (wide tibble from non_elective_create_analysis_df.R)
-#   - non_elective_cohort   (baseline confounders)
+#   - elective_outcomes (wide tibble from elective_create_analysis_df.R)
+#   - elective_cohort   (baseline confounders)
 #   - iv_df
 #
 # Outputs (one per timepoint):
-#   - non_elective_{H}d.dta          — analysis-ready dataset, union of all
+#   - elective_{H}d.dta          — analysis-ready dataset, union of all
 #                                       LASSO-selected columns across outcomes,
 #                                       plus pre-generated D*X and Z*X columns
-#   - non_elective_{H}d_globals.csv  — outcome -> Xlist/Mlist mapping for Stata
+#   - elective_{H}d_globals.csv  — outcome -> Xlist/Mlist mapping for Stata
 
 library(dplyr)
 library(haven)
+library(purrr)
 
 source("R/lasso.R")
 
@@ -24,7 +25,7 @@ source("R/lasso.R")
 # PATHS
 # =============================================================================
 
-OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
+OUTPUT_DIR <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/lasso_outputs/"
 
 # =============================================================================
 # PARAMETERS
@@ -74,7 +75,7 @@ penalized_vars <- c(
   "comorbidity_2", "comorbidity_3", "comorbidity_4", "comorbidity_5",
   "comorbidity_6", "comorbidity_7", "comorbidity_8",
   "medication_1", "medication_2", "medication_3", "medication_4",
-  "surgyr_2016", "surgyr_2017", "surgyr_2018", "surgyr_2019",
+  "surgyr_2017", "surgyr_2018", "surgyr_2019",
   "surgyr_2020", "surgyr_2021", "surgyr_2022", "surgyr_2023",
   "covid_period", "postcovid_period"
 )
@@ -84,9 +85,9 @@ penalized_vars <- c(
 # =============================================================================
 
 # NOTE: instrumental_variable loaded externally — will move into pipeline later
-base_df <- non_elective_outcomes %>%
+base_df <- elective_outcomes %>%
   left_join(
-    non_elective_cohort %>%
+    elective_cohort %>%
         select(-early_surgery),
     by = c("study_id" = "STUDY_ID")
   ) %>%
@@ -114,7 +115,6 @@ base_df <- non_elective_outcomes %>%
     imd_q5           = if_else(IMD_quintile == "Q5 (most deprived)",  1L, 0L),
     fontaine_4       = if_else(`Indications:PadFontaineCode` == 4,    1L, 0L),
     amp_tissueloss   = if_else(`Indications:AmpIndicationCode` == 4,  1L, 0L),
-    surgyr_2016      = if_else(year_of_surgery == 2016, 1L, 0L),
     surgyr_2017      = if_else(year_of_surgery == 2017, 1L, 0L),
     surgyr_2018      = if_else(year_of_surgery == 2018, 1L, 0L),
     surgyr_2019      = if_else(year_of_surgery == 2019, 1L, 0L),
@@ -146,18 +146,25 @@ for (h in TIME_HORIZONS) {
 
     outcome_col <- gsub("\\{H\\}", h, OUTCOMES[[outcome_name]])
     message(sprintf("\n===== LASSO: %s | %dd =====", outcome_name, h))
-
-    lasso_results[[as.character(h)]][[outcome_name]] <- run_lasso_iv_selection(
-      dataset                = base_df,
-      outcome                = outcome_col,
-      treatment              = "early_surgery",
-      instrument             = "instrumental_variable",
-      prespecified_subgroups = not_penalized,
-      penalized_main_effects = penalized_vars,
-      family_stage1          = "binomial",
-      family_stage2          = OUTCOME_FAMILIES[[outcome_name]],
-      seed                   = 1276
-    )
+  
+  # adding tryCatch as lasso fails to converge for binary outcome mortality 
+  lasso_results[[as.character(h)]][[outcome_name]] <- tryCatch(
+  run_lasso_iv_selection(
+    dataset                = base_df,
+    outcome                = outcome_col,
+    treatment              = "early_surgery",
+    instrument             = "instrumental_variable",
+    prespecified_subgroups = not_penalized,
+    penalized_main_effects = penalized_vars,
+    family_stage1          = "binomial",
+    family_stage2          = OUTCOME_FAMILIES[[outcome_name]],
+    seed                   = 1276
+  ),
+  error = function(e) {
+    message(sprintf("  SKIPPED: %s | %dd — %s", outcome_name, h, conditionMessage(e)))
+    NULL
+  }
+)
   }
 }
 
@@ -180,7 +187,11 @@ for (h in TIME_HORIZONS) {
   # All base variables that need D*X or Z*X pre-generated
   # Always include prespecified subgroups (forced per protocol)
   dx_base_vars <- unique(c(not_penalized, all_dx_base))
-  zx_base_vars <- unique(c(not_penalized, all_zx_base))
+  zx_base_vars <- unique(c(not_penalized, all_zx_base, all_dx_base))
+  # include all_dx_base: per protocol, any X where D*X was retained in the
+  # outcome model is also forced unpenalised as Z*X in the Stage 1 exposure
+  # model (model2). The LASSO applies this correctly; this line ensures the
+  # corresponding z_x_stage1_ columns are also pre-generated in the DTA for Stata.
 
   # ── Build export dataset
   outcome_cols <- sapply(OUTCOMES, function(x) gsub("\\{H\\}", h, x))
@@ -223,13 +234,14 @@ for (h in TIME_HORIZONS) {
     )
 
   # ── Write DTA
-  dta_path <- file.path(OUTPUT_DIR, sprintf("non_elective_%dd.dta", h))
+  dta_path <- file.path(OUTPUT_DIR, sprintf("elective_%dd.dta", h))
   haven::write_dta(export_df, dta_path)
   message(sprintf("Written: %s", dta_path))
 
   # ── Build globals CSV
   globals_rows <- lapply(names(h_results), function(outcome_name) {
     res         <- h_results[[outcome_name]]
+    if (is.null(res)) return(NULL)
     outcome_col <- gsub("\\{H\\}", h, OUTCOMES[[outcome_name]])
 
     # D*X base vars for this outcome (prespec + LASSO-selected)
@@ -295,8 +307,58 @@ for (h in TIME_HORIZONS) {
     )
   })
 
-  globals_df   <- do.call(rbind, globals_rows)
-  globals_path <- file.path(OUTPUT_DIR, sprintf("non_elective_%dd_globals.csv", h))
+  globals_df <- do.call(rbind, Filter(Negate(is.null), globals_rows))
+  globals_path <- file.path(OUTPUT_DIR, sprintf("elective_%dd_globals.csv", h))
   write.csv(globals_df, globals_path, row.names = FALSE)
   message(sprintf("Written: %s", globals_path))
+}
+
+# for failed mortality outcome, take union of the selected covariates across all other outcomes at the same time horizon
+
+build_mortality_union_row <- function(globals_path, horizon) {
+  
+  globals <- read.csv(globals_path, stringsAsFactors = FALSE)
+  
+  # Check if mortality row already exists — skip if so
+  mortality_col <- sprintf("died_post_bypass_surg_%dd", horizon)
+  if (any(globals$outcome == mortality_col)) {
+    message(sprintf("Mortality row already exists at %dd — skipping", horizon))
+    return(globals)
+  }
+  
+  # Helper to take union of space-separated variable lists across all outcomes
+  union_vars <- function(col) {
+    paste(
+      unique(unlist(strsplit(paste(globals[[col]], collapse = " "), " "))),
+      collapse = " "
+    )
+  }
+  
+  mortality_row <- data.frame(
+    outcome       = mortality_col,
+    family        = "binomial",
+    xlist_s2_m1   = union_vars("xlist_s2_m1"),
+    xlist_s1_m1   = union_vars("xlist_s1_m1"),
+    xlist_s2_m2   = union_vars("xlist_s2_m2"),
+    xlist_s1_m2   = union_vars("xlist_s1_m2"),
+    zlist_s1_m2   = union_vars("zlist_s1_m2"),
+    dxlist_s2_m2  = union_vars("dxlist_s2_m2"),
+    xlist_s2_noiv = union_vars("xlist_s2_noiv"),
+    stringsAsFactors = FALSE
+  )
+  
+  globals_updated <- rbind(globals, mortality_row)
+  write.csv(globals_updated, globals_path, row.names = FALSE)
+  message(sprintf("Mortality union row added and written: %s", globals_path))
+  
+  globals_updated
+}
+
+# Run for all three horizons
+for (h in c(90, 180, 365)) {
+  globals_path <- file.path(
+    "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/lasso_outputs/",
+    sprintf("elective_%dd_globals.csv", h)
+  )
+  build_mortality_union_row(globals_path, h)
 }
