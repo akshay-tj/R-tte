@@ -4,6 +4,15 @@ library(haven)
 
 source("R/lasso.R")
 
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_confounders.csv"
+NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_outcomes.csv"
+NON_ELECTIVE_IV_OUTPUT_PATH   <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_ttes.csv"
+
+non_elective_cohort <- read.csv(NON_ELECTIVE_COHORT_BASELINE_DF_PATH)
+non_elective_outcomes <- read.csv(NON_ELECTIVE_COHORT_OUTCOMES_DF_PATH)
+non_elective_iv <- read.csv(NON_ELECTIVE_IV_OUTPUT_PATH)
+
+
 # ── 1. Build analysis dataset ─────────────────────────────────────────────────
 
 afs_df <- non_elective_cohort %>%
