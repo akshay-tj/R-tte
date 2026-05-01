@@ -192,6 +192,7 @@ print(results_fmt, n = Inf)
 
 output_path <- file.path(RESULTS_DIR, "krt_interaction_wald_results.csv")
 write.csv(results_fmt, output_path, row.names = FALSE)
+
 message("Results written to: ", output_path)
 
 # =============================================================================
@@ -249,3 +250,5 @@ ggplot(valid_op, aes(x = days_before)) +
   labs(x = "",
        y = "Count") +
   theme_minimal()
+
+message("Results written to: ", output_path)
