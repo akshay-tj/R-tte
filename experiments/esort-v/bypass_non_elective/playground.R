@@ -192,4 +192,63 @@ print(results_fmt, n = Inf)
 
 output_path <- file.path(RESULTS_DIR, "krt_interaction_wald_results.csv")
 write.csv(results_fmt, output_path, row.names = FALSE)
+
+message("Results written to: ", output_path)
+
+# =============================================================================
+# PLAYGROUND: proportion of non-elective participants with a valid OP visit
+#             within the 30 days prior to Admission
+# =============================================================================
+
+HES_OP_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/HES Data - May 2025/HES_data_concatenated_across_years/HES_OP_2015_to_2023.qs"
+NON_ELECTIVE_COHORT_BASELINE_DF_PATH <- "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/analysable_subsets/non_elective_bypass_study_participants_with_confounders.csv"
+
+HES_OP_WANTED_COLS <- c("STUDY_ID", "APPTDATE", "TRETSPEF", "ATTENDED")
+
+TREATMENT_SPECIALTY_CODES <- c("107", "307", "653", "663", "100")
+
+HES_OP_df_clean <- read_qs_df(HES_OP_PATH, HES_OP_WANTED_COLS) %>%
+  clean_HES_df_id_for_matching(id_col = "STUDY_ID") %>%
+  mutate(
+    APPTDATE = as.Date(APPTDATE),
+    TRETSPEF = as.character(TRETSPEF)
+  ) %>%
+  filter(ATTENDED %in% c("5", "6")) %>%
+  filter(TRETSPEF %in% TREATMENT_SPECIALTY_CODES)
+
+non_elective_cohort <- read.csv(NON_ELECTIVE_COHORT_BASELINE_DF_PATH) %>% 
+                       mutate(STUDY_ID = as.character(STUDY_ID), 
+                              `NvrEpisode.AdmissionDate` = as.Date(`NvrEpisode.AdmissionDate`))
+
+joined <- non_elective_cohort %>%
+  left_join(HES_OP_df_clean, by = c("STUDY_ID" = "STUDY_ID_clean")) %>%
+  mutate(days_before = as.integer(`NvrEpisode.AdmissionDate` - APPTDATE))
+
+valid_op <- joined %>%
+  filter(days_before > 1, days_before <= 30) %>%
+  arrange(STUDY_ID, `NvrEpisode.AdmissionDate`, days_before) %>%
+  group_by(STUDY_ID, `NvrEpisode.AdmissionDate`) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(STUDY_ID, days_before, `NvrEpisode.AdmissionDate`, valid_op_date = APPTDATE)
+
+non_elective_cohort_op_check <- non_elective_cohort %>%
+  left_join(valid_op, by = c("STUDY_ID", "NvrEpisode.AdmissionDate"))
+
+n_total     <- nrow(non_elective_cohort_op_check)
+n_valid_op  <- sum(!is.na(non_elective_cohort_op_check$valid_op_date))
+prop_valid  <- n_valid_op / n_total
+
+message(sprintf(
+  "Valid OP visit (<=30 days pre-admission): %d / %d  (%.1f%%)",
+  n_valid_op, n_total, prop_valid * 100
+))
+
+# plot histogram of valid_op_date 
+ggplot(valid_op, aes(x = days_before)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  labs(x = "",
+       y = "Count") +
+  theme_minimal()
+
 message("Results written to: ", output_path)
