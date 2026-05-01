@@ -1,14 +1,14 @@
 * ipw_sensitivity.do
 *
-* IPW-weighted sensitivity analysis (no IV) for non-elective bypass cohort.
+* IPW-weighted sensitivity analysis (no IV) for elective bypass cohort.
 * Uses LASSO-selected covariate lists from globals CSV.
 * Doubly-robust: IPW weight + direct covariate adjustment in outcome model.
 * Analytic CIs via margins (clustered sandwich SE).
 * One log file per horizon.
 *
 * Inputs:
-*   - non_elective_{H}d.dta
-*   - non_elective_{H}d_globals.csv
+*   - elective_{H}d.dta
+*   - elective_{H}d_globals.csv
 *
 * Output:
 *   - ipw_sensitivity_{H}d.smcl (log, one per horizon)
@@ -19,14 +19,14 @@
 
 local  horizons    90 180 365
 
-global data_dir    "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/lasso_outputs/"
-global results_dir "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/clinical_effectiveness_results/"
+global data_dir    "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/lasso_outputs/"
+global results_dir "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/clinical_effectiveness_results/"
 
 global treated     early_surgery
 global clustervar  HospitalCluster
 
 * Year range for surgyr reference category derivation
-local  surgyr_min  2015
+local  surgyr_min  2016
 local  surgyr_max  2023
 
 * IPW weight diagnostic percentiles to report
@@ -44,8 +44,8 @@ capture mkdir "$results_dir"
 
 foreach horizon of local horizons {
 
-    local dta_path     "$data_dir/non_elective_`horizon'd.dta"
-    local globals_path "$data_dir/non_elective_`horizon'd_globals.csv"
+    local dta_path     "$data_dir/elective_`horizon'd.dta"
+    local globals_path "$data_dir/elective_`horizon'd_globals.csv"
 
     * ── Log ──────────────────────────────────────────────────────────
     capture log close
