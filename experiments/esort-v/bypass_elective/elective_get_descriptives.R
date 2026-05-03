@@ -49,7 +49,8 @@ elective_cohort_table1 <- elective_cohort %>%
     year_of_surgery = factor(
       year_of_surgery,
       levels = 2015:2024
-    )
+    ), 
+    covid_time_period = factor(covid_time_period)
   )
 
 cont_vars_t1 <- c(
@@ -74,7 +75,8 @@ cat_vars_t1 <- c(
   "year_of_surgery",
   "krt_yn", 
   "rcs_ch_cat",      # already a factor — levels: None, One, Two, Three+
-  "scarf_cat"
+  "scarf_cat", 
+  "covid_time_period"
 )
 
 descriptive_table(
