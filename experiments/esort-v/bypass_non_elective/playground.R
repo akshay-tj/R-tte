@@ -251,4 +251,6 @@ ggplot(valid_op, aes(x = days_before)) +
        y = "Count") +
   theme_minimal()
 
+output_path <- file.path(RESULTS_DIR, "non_elective_with_prior_valid_op_visits.png")
+ggsave(output_path, p, width = 12, height = n_rows * 0.35 + 2, dpi = 300)
 message("Results written to: ", output_path)
