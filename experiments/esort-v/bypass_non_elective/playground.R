@@ -235,22 +235,22 @@ valid_op <- joined %>%
 non_elective_cohort_op_check <- non_elective_cohort %>%
   left_join(valid_op, by = c("STUDY_ID", "NvrEpisode.AdmissionDate"))
 
-n_total     <- nrow(non_elective_cohort_op_check)
+n_total     <- nrow(non_elective_cohort_op_check) # 6065
 n_valid_op  <- sum(!is.na(non_elective_cohort_op_check$valid_op_date))
 prop_valid  <- n_valid_op / n_total
 
 message(sprintf(
-  "Valid OP visit (<=30 days pre-admission): %d / %d  (%.1f%%)",
+  "Valid OP visit (>1 but <=30 days pre-admission date): %d / %d  (%.1f%%)",
   n_valid_op, n_total, prop_valid * 100
 ))
 
 # plot histogram of valid_op_date 
-ggplot(valid_op, aes(x = days_before)) +
-  geom_histogram(fill = "steelblue", color = "white") +
-  labs(x = "",
-       y = "Count") +
-  theme_minimal()
+p <-ggplot(valid_op, aes(x = days_before)) +
+    geom_histogram(bins = 20, fill = "steelblue", color = "white") +
+    labs(x = "Qualifying OP visit days before admission date",
+        y = "Count") +
+    theme_minimal(base_size = 12)
 
 output_path <- file.path(RESULTS_DIR, "non_elective_with_prior_valid_op_visits.png")
-ggsave(output_path, p, width = 12, height = n_rows * 0.35 + 2, dpi = 300)
+ggsave(output_path, p, width = 8, height = 6 + 2, dpi = 300)
 message("Results written to: ", output_path)
