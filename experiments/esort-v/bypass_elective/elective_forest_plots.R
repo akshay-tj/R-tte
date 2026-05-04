@@ -53,28 +53,28 @@ OUTCOMES <- list(
     pred_type       = "pr",
     label           = "Mortality",
     favors_positive = FALSE,
-    as_percentage   = TRUE
+    as_percentage   = FALSE
   ),
   list(
     col_pattern     = "readmit_post_bypass_surg_{H}d",
     pred_type       = "pr",
     label           = "Post-surgery readmission",
     favors_positive = FALSE,
-    as_percentage   = TRUE
+    as_percentage   = FALSE
   ),
   list(
     col_pattern     = "ilr_{H}d",
     pred_type       = "pr",
     label           = "Index limb revascularisation",
     favors_positive = FALSE,
-    as_percentage   = TRUE
+    as_percentage   = FALSE
   ),
   list(
     col_pattern     = "ilma_{H}d",
     pred_type       = "pr",
     label           = "Index limb major amputation",
     favors_positive = FALSE,
-    as_percentage   = TRUE
+    as_percentage   = FALSE
   )
 )
 

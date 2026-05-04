@@ -13,7 +13,7 @@
 * ============================================================================
 
 * Timepoints to analyse (must match DTA/globals files produced by R)
-local horizons 90 d180 365 //   
+local horizons 90 180 365 //   
 
 * Bootstrap settings
 global nreps  = 300       // number of bootstrap replications
