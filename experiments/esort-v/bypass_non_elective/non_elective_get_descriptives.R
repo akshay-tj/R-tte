@@ -50,7 +50,20 @@ non_elective_cohort_table1 <- non_elective_cohort %>%
       year_of_surgery,
       levels = 2015:2024
     ),
-    covid_time_period = factor(covid_time_period)
+    covid_time_period = factor(covid_time_period),
+    ADMIMETH = factor(
+      ADMIMETH,
+      levels = c("11", "12", "13",
+                 "21", "22", "23", "24",
+                 "2A", "2B", "2D",
+                 "28",
+                 "81"),
+      labels = c("Elective: Waiting list", "Elective: Booked", "Elective: Planned",
+                 "Emergency: A&E", "Emergency: GP", "Emergency: Bed bureau", "Emergency: Consultant clinic",
+                 "Emergency: A&E other provider", "Emergency: Transfer from another Hospital where admitted as emergency", "Emergency: Other",
+                 "Emergency: Other",
+                 "Other: Transfer non-emergency")
+    )
   )
 
 cont_vars_t1 <- c(
@@ -76,7 +89,8 @@ cat_vars_t1 <- c(
   "krt_yn", 
   "rcs_ch_cat",      # already a factor — levels: None, One, Two, Three+
   "scarf_cat", 
-  "covid_time_period"
+  "covid_time_period", 
+  "ADMIMETH"
 )
 
 descriptive_table(

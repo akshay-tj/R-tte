@@ -60,7 +60,7 @@ NVR_WANTED_COLS <- c(
 HES_APC_WANTED_COLS <- c(
   "STUDY_ID", "ADMIDATE", "EPISTART", "DISDATE", "EPIEND",
   "DIAG_4_CONCAT", "ADMISORC", "DISDEST", "IMD04_DECILE", 
-  "OPERTN_4_CONCAT",
+  "OPERTN_4_CONCAT", "ADMIMETH",
   paste0("OPERTN_", sprintf("%02d", 1:24)),
   paste0("OPDATE_", sprintf("%02d", 1:24))
 )
@@ -316,6 +316,11 @@ imd_flags <- HES_index %>%
   HES_imd_decile_to_quintile() %>%
   select(STUDY_ID_clean, IMD_quintile)
 
+# ── ADMIMETH ──────────────────────────────────────────────────────────────────
+admimeth_flags <- HES_index %>%
+  select(STUDY_ID_clean, ADMIMETH) %>%
+  distinct(STUDY_ID_clean, .keep_all = TRUE)
+
 # =============================================================================
 # SECTION 5: Assemble final cohort and write CSV
 # =============================================================================
@@ -326,7 +331,8 @@ elective_cohort <- elective_cohort %>%
   left_join(charlson_flags %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(scarf_flags   %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
   left_join(imd_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
-  left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID")
+  left_join(krt_flags     %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID") %>%
+  left_join(admimeth_flags %>% rename(STUDY_ID = STUDY_ID_clean), by = "STUDY_ID")
 
 # check for missing data in the final cohort DF
 cat("Rows:", nrow(elective_cohort), "\n\nMissing data summary:\n")
