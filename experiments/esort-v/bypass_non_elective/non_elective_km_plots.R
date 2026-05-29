@@ -57,11 +57,11 @@ km_mortality <- survfit2(Surv(time_to_event, died) ~ early_surgery,
   ) +
   scale_color_manual(
     values = c("0" = "steelblue", "1" = "firebrick"),
-    labels = c("0" = "Late surgery", "1" = "Early surgery")
+    labels = c("0" = "Later surgery", "1" = "Early surgery")
   ) +
   scale_fill_manual(
     values = c("0" = "steelblue", "1" = "firebrick"),
-    labels = c("0" = "Late surgery", "1" = "Early surgery")
+    labels = c("0" = "Later surgery", "1" = "Early surgery")
   ) +
   add_pvalue(location = "annotation") +
   labs(
@@ -107,11 +107,11 @@ km_afs <- survfit2(Surv(afs_days, afs_event) ~ early_surgery,
   ) +
   scale_color_manual(
     values = c("0" = "steelblue", "1" = "firebrick"),
-    labels = c("0" = "Late surgery", "1" = "Early surgery")
+    labels = c("0" = "Later surgery", "1" = "Early surgery")
   ) +
   scale_fill_manual(
     values = c("0" = "steelblue", "1" = "firebrick"),
-    labels = c("0" = "Late surgery", "1" = "Early surgery")
+    labels = c("0" = "Later surgery", "1" = "Early surgery")
   ) +
   add_pvalue(location = "annotation") +
   labs(
