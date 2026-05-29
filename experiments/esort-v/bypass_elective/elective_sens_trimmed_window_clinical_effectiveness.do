@@ -200,12 +200,12 @@ foreach horizon of local horizons {
 
             capture log close
 
-            log using "bootstrap_sens_`outcome'_`version'_`horizon'd.smcl", replace
+            log using "bootstrap_`outcome'_`version'_`horizon'd.smcl", replace
 
             bootstrap `bootstats', ///
                 reps($nreps) seed($seed) ///
                 cluster($clustervar) idcluster(id_$clustervar) ///
-                saving("bootstrap_sens_`outcome'_`version'_`horizon'd.dta", replace): ///
+                saving("bootstrap_`outcome'_`version'_`horizon'd.dta", replace): ///
                 subgroupboot, ytouse("`outcome'") version("`version'")
 
             log close
@@ -251,6 +251,6 @@ use `iv_strength_file', clear
 
 tostring outcome version, replace force
 
-export delimited using "${results_dir}iv_strength_all_sensitivity.csv", replace
+export delimited using "${results_dir}iv_strength_all.csv", replace
 
 di "Sensitivity 2SRI clinical effectiveness analysis complete."
