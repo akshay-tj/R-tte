@@ -192,5 +192,10 @@ beta  <- coef(cox_afs)[c_idx]
 se    <- sqrt(vcov(cox_afs)[c_idx, c_idx])
 HR    <- exp(beta)
 CI    <- exp(beta + c(-1, 1) * 1.96 * se)
+zval <- beta / se
+pval <- 2 * pnorm(abs(zval), lower.tail = FALSE)
 
-cat(sprintf("HR: %.3f  95%% CI: %.3f - %.3f\n", HR, CI[1], CI[2]))
+cat(sprintf(
+  "HR: %.3f  95%% CI: %.3f - %.3f  p = %.4f\n",
+  HR, CI[1], CI[2], pval
+))
