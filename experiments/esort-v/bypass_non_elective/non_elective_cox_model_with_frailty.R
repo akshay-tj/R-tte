@@ -199,3 +199,18 @@ cat(sprintf(
   "HR: %.3f  95%% CI: %.3f - %.3f  p = %.4f\n",
   HR, CI[1], CI[2], pval
 ))
+
+# ── Save non-elective model objects for IV-adjusted AFS plotting ──────────────
+
+non_elective_afs_model_bundle <- list(
+  cohort_label    = "Non-elective population",
+  afs_df          = afs_df,
+  lasso_afs       = lasso_afs,
+  cox_formula_str = cox_formula_str,
+  cox_afs         = cox_afs
+)
+
+saveRDS(
+  non_elective_afs_model_bundle,
+  file = "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_non_elective_240426/iv_adjusted_afs_non_elective_model_bundle.rds"
+)
