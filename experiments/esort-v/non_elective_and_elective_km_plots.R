@@ -43,7 +43,7 @@ x_axis_km <- scale_x_continuous(
 
 y_axis_km <- scale_y_continuous(
   limits = c(0.50, 1.00),
-  breaks = c(0.60, 0.70, 0.80, 0.90, 1.00),
+  breaks = c(0.50, 0.60, 0.70, 0.80, 0.90, 1.00),
   expand = expansion(mult = c(0, 0.02)),
   labels = scales::percent_format(accuracy = 1)
 )
@@ -140,7 +140,7 @@ km_mortality_elective <- make_km_plot(
   data       = df_mortality_elective,
   time_var   = "time_to_event",
   event_var  = "died",
-  title_text = "B. Overall survival: Elective population",
+  title_text = "C. Overall survival: Elective population",
   y_label    = "Survival probability",
   x_label    = NULL
 ) +
@@ -150,7 +150,7 @@ km_afs_non_elective <- make_km_plot(
   data       = df_afs_non_elective,
   time_var   = "afs_days",
   event_var  = "afs_event",
-  title_text = "C. Amputation-free survival: Non-elective population",
+  title_text = "B. Amputation-free survival: Non-elective population",
   y_label    = "Amputation-free survival",
   x_label    = "Days from surgery"
 )
