@@ -37,6 +37,7 @@ TIME_HORIZONS <- c(90, 180, 365)
 OUTCOMES <- list(
   daoh        = "daoh_bypass_surg_{H}d",
   daoh_myles              = "daoh_myles_bypass_surg_{H}d",
+ index_los = "bypass_surg_proc_los_no",
   total_los   = "total_los_no_{H}d",
   readmission = "readmit_post_bypass_surg_{H}d",
   mortality   = "died_post_bypass_surg_{H}d",
@@ -49,6 +50,7 @@ OUTCOMES <- list(
 OUTCOME_FAMILIES <- c(
   daoh                    = "gaussian",
   daoh_myles              = "gaussian",
+  index_los               = "gaussian",
   total_los               = "gaussian",
   readmission             = "binomial",
   mortality               = "binomial",
