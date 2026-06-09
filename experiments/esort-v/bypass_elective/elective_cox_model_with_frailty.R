@@ -191,5 +191,25 @@ beta  <- coef(cox_afs)[c_idx]
 se    <- sqrt(vcov(cox_afs)[c_idx, c_idx])
 HR    <- exp(beta)
 CI    <- exp(beta + c(-1, 1) * 1.96 * se)
+zval <- beta / se
+pval <- 2 * pnorm(abs(zval), lower.tail = FALSE)
 
-cat(sprintf("HR: %.3f  95%% CI: %.3f - %.3f\n", HR, CI[1], CI[2]))
+cat(sprintf(
+  "HR: %.3f  95%% CI: %.3f - %.3f  p = %.4f\n",
+  HR, CI[1], CI[2], pval
+))
+
+# ── Save elective model objects for IV-adjusted AFS plotting ──────────────────
+
+elective_afs_model_bundle <- list(
+  cohort_label    = "Elective population",
+  afs_df          = afs_df,
+  lasso_afs       = lasso_afs,
+  cox_formula_str = cox_formula_str,
+  cox_afs         = cox_afs
+)
+
+saveRDS(
+  elective_afs_model_bundle,
+  file = "Z:/PHP/HSR/ESORT-V/ESORT-V/bypass_elective_270426/iv_adjusted_afs_elective_model_bundle.rds"
+)
